@@ -1,0 +1,854 @@
+{% extends "_layouts/cp" %}
+
+{% set title = isNew ? "New Test" : "Edit Test" %}
+{% set selectedSubnavItem = "tests" %}
+
+{% set fullPageForm = true %}
+
+{% import "_includes/forms" as forms %}
+
+{% block content %}
+    <input type="hidden" name="action" value="abtestcraft/tests/save">
+    {{ csrfInput() }}
+    {{ redirectInput('abtestcraft/tests/{id}') }}
+
+    {% if test.id %}
+        <input type="hidden" name="testId" value="{{ test.id }}">
+    {% endif %}
+
+    {{ forms.textField({
+        label: "Test Name"|t('abtestcraft'),
+        instructions: "A friendly name for this test."|t('abtestcraft'),
+        id: 'name',
+        name: 'name',
+        value: test.name,
+        required: true,
+        errors: test.getErrors('name'),
+    }) }}
+
+    {{ forms.textField({
+        label: "Handle"|t('abtestcraft'),
+        instructions: "How you'll refer to this test in code."|t('abtestcraft'),
+        id: 'handle',
+        name: 'handle',
+        class: 'code',
+        value: test.handle,
+        required: true,
+        errors: test.getErrors('handle'),
+    }) }}
+
+    <hr>
+
+    <h2>{{ "Test Details"|t('abtestcraft') }}</h2>
+
+    {{ forms.textareaField({
+        label: "Hypothesis"|t('abtestcraft'),
+        instructions: "What do you expect to happen? What are you trying to prove?"|t('abtestcraft'),
+        id: 'hypothesis',
+        name: 'hypothesis',
+        value: test.hypothesis,
+        rows: 3,
+        errors: test.getErrors('hypothesis'),
+    }) }}
+
+    {{ forms.textareaField({
+        label: "Variant Changes"|t('abtestcraft'),
+        instructions: "What's different between the control and variant? List the key changes."|t('abtestcraft'),
+        id: 'variantDescription',
+        name: 'variantDescription',
+        value: test.variantDescription,
+        rows: 4,
+        errors: test.getErrors('variantDescription'),
+    }) }}
+
+    <hr>
+
+    <h2>Test Pages</h2>
+
+    {{ forms.elementSelectField({
+        label: "Control Entry (Original)"|t('abtestcraft'),
+        instructions: "The page where visitors will land. The test runs on this page's URL."|t('abtestcraft'),
+        id: 'controlEntryId',
+        name: 'controlEntryId',
+        elementType: 'craft\\elements\\Entry',
+        single: true,
+        elements: controlEntry ? [controlEntry] : [],
+        selectionLabel: 'Choose an entry'|t('abtestcraft'),
+        required: true,
+        errors: test.getErrors('controlEntryId'),
+    }) }}
+
+    {% if controlEntry %}
+    <div class="field">
+        <div class="heading">
+            <label>Test Landing Page URL</label>
+        </div>
+        <div class="input">
+            <div class="flex">
+                <code style="padding: 8px 12px; background: #f1f5f8; border-radius: 4px;">{{ controlEntry.url }}</code>
+                <a href="{{ controlEntry.url }}" target="_blank" class="btn small" style="margin-left: 8px;">Preview</a>
+            </div>
+        </div>
+        <div class="instructions"><p>This is the URL where the split test will run.</p></div>
+    </div>
+    {% endif %}
+
+    {{ forms.elementSelectField({
+        label: "Variant Entry (Test Version)"|t('abtestcraft'),
+        instructions: "The alternative page to test against the control. Visitors assigned to the variant will see this page's content."|t('abtestcraft'),
+        id: 'variantEntryId',
+        name: 'variantEntryId',
+        elementType: 'craft\\elements\\Entry',
+        single: true,
+        elements: variantEntry ? [variantEntry] : [],
+        selectionLabel: 'Choose an entry'|t('abtestcraft'),
+        required: true,
+        errors: test.getErrors('variantEntryId'),
+    }) }}
+
+    {% if variantEntry %}
+    <div class="field">
+        <div class="heading">
+            <label>Variant Page URL</label>
+        </div>
+        <div class="input">
+            <div class="flex">
+                <code style="padding: 8px 12px; background: #f1f5f8; border-radius: 4px;">{{ variantEntry.url }}</code>
+                <a href="{{ variantEntry.url }}" target="_blank" class="btn small" style="margin-left: 8px;">Preview</a>
+            </div>
+        </div>
+        <div class="instructions"><p>Visitors won't be redirected here - content will be swapped server-side on the control URL.</p></div>
+    </div>
+    {% endif %}
+
+    {{ forms.textField({
+        label: "Traffic to Variant (%)"|t('abtestcraft'),
+        instructions: "Percentage of traffic to send to the variant (0-100). 50% means equal split."|t('abtestcraft'),
+        id: 'trafficSplit',
+        name: 'trafficSplit',
+        type: 'number',
+        min: 0,
+        max: 100,
+        value: test.trafficSplit,
+        required: true,
+        errors: test.getErrors('trafficSplit'),
+    }) }}
+
+    <hr>
+
+    <h2>Conversion Goals</h2>
+    <p class="light" style="margin-bottom: 24px;">Select one or more conversion goals to track. Each goal type can only be enabled once per test.</p>
+
+    {# Prepare goals data from existing test #}
+    {% set existingGoals = {} %}
+    {% if not isNew and test.id %}
+        {% for goal in test.getGoals() %}
+            {% set existingGoals = existingGoals|merge({(goal.goalType): goal}) %}
+        {% endfor %}
+    {% endif %}
+
+    {# Form Submissions Goal #}
+    {% set formGoal = existingGoals.form ?? null %}
+    {% set formPluginInfo = craft.abtestcraft.formPlugins %}
+    {% set availableForms = formPluginInfo.allForms %}
+    {% set hasFormPlugin = formPluginInfo.hasPlugin %}
+
+    {# Determine current mode: smart if mode is explicitly set, otherwise default based on plugin availability #}
+    {% set currentFormMode = 'advanced' %}
+    {% if formGoal and formGoal.config.mode is defined and formGoal.config.mode == 'smart' %}
+        {% set currentFormMode = 'smart' %}
+    {% elseif hasFormPlugin and not formGoal %}
+        {# Default to smart mode for new goals when form plugin is available #}
+        {% set currentFormMode = 'smart' %}
+    {% endif %}
+
+    <div class="field goal-field" id="goal-form-field">
+        <div class="heading">
+            <label>
+                {{ forms.lightswitch({
+                    id: 'goals-form-enabled',
+                    name: 'goals[form][isEnabled]',
+                    on: formGoal ? formGoal.isEnabled : false,
+                    small: true,
+                }) }}
+                <span style="margin-left: 8px; font-weight: 600;">Form Submissions</span>
+            </label>
+        </div>
+        <div class="instructions"><p>Track specific form submissions (contact forms, lead forms, etc.)</p></div>
+        <div class="goal-config" id="goal-form-config" style="margin-top: 12px; padding: 16px; background: #f8fafc; border-radius: 6px; {{ not formGoal or not formGoal.isEnabled ? 'display: none;' : '' }}">
+            <input type="hidden" name="goals[form][goalType]" value="form">
+
+            {# Mode Toggle #}
+            {{ forms.selectField({
+                label: "Configuration Mode"|t('abtestcraft'),
+                instructions: "Easy Mode auto-detects your form settings. Advanced Mode lets you enter CSS selectors manually."|t('abtestcraft'),
+                id: 'goals-form-mode',
+                name: 'goals[form][config][mode]',
+                options: [
+                    { label: 'Easy Mode (Select Form)', value: 'smart', disabled: not hasFormPlugin },
+                    { label: 'Advanced Mode (CSS Selector)', value: 'advanced' },
+                ],
+                value: currentFormMode,
+            }) }}
+
+            {% if not hasFormPlugin %}
+                <div style="padding: 8px 12px; background: #d1ecf1; border-radius: 4px; color: #0c5460; margin-bottom: 16px; font-size: 13px;">
+                    <strong>Note:</strong> No supported form plugins detected. Install <a href="https://plugins.craftcms.com/freeform" target="_blank">Freeform</a> or <a href="https://plugins.craftcms.com/formie" target="_blank">Formie</a> to use Easy Mode.
+                </div>
+            {% endif %}
+
+            {# Easy Mode: Form Checkboxes (multi-select) #}
+            <div id="form-smart-mode" style="{{ currentFormMode != 'smart' ? 'display: none;' : '' }}">
+                {% set selectedForms = formGoal ? formGoal.getSelectedForms() : [] %}
+
+                <div class="field">
+                    <div class="heading">
+                        <label>Select Form(s) to Track</label>
+                    </div>
+                    <div class="instructions">
+                        <p>Choose which form(s) should count as conversions. Leave all unchecked to track any form submission on the test page.</p>
+                    </div>
+                    <div class="input" style="padding: 12px; background: #fff; border: 1px solid #e3e5e8; border-radius: 6px;">
+                        {% if availableForms|length > 0 %}
+                            {% for form in availableForms %}
+                                <div style="margin-bottom: 8px;">
+                                    {{ forms.checkbox({
+                                        label: form.name ~ ' <span style="color: #8f98a8; font-weight: normal;">(' ~ form.pluginName ~ ')</span>',
+                                        name: 'goals[form][config][forms][]',
+                                        value: form.plugin ~ ':' ~ form.handle,
+                                        checked: (form.plugin ~ ':' ~ form.handle) in selectedForms,
+                                    }) }}
+                                </div>
+                            {% endfor %}
+                        {% else %}
+                            <p class="light" style="margin: 0;">No forms found. Create forms in Freeform or Formie first.</p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div style="padding: 12px; background: #d4edda; border-radius: 4px; color: #155724; font-size: 13px; margin-top: 12px;">
+                    <strong>Success detection is automatic</strong> when using Easy Mode. The plugin will use native events from your form plugin to detect successful submissions.
+                </div>
+            </div>
+
+            {# Advanced Mode: CSS Selectors #}
+            <div id="form-advanced-mode" style="{{ currentFormMode != 'advanced' ? 'display: none;' : '' }}">
+                <div class="field">
+                    <div class="heading">
+                        <label for="goals-form-selector">Form Selector</label>
+                        <button type="button" class="btn small" id="form-selector-help-btn" style="margin-left: 8px; padding: 2px 8px; font-size: 12px;">
+                            Help
+                        </button>
+                    </div>
+                    <div class="instructions">
+                        <p>CSS selector(s) for the forms to track. Separate multiple selectors with commas.</p>
+                    </div>
+                    <div class="input ltr">
+                        <input type="text"
+                               id="goals-form-selector"
+                               name="goals[form][config][formSelector]"
+                               class="text fullwidth"
+                               value="{{ formGoal ? formGoal.getFormSelector()|e('html_attr') : '.freeform-form' }}"
+                               placeholder=".freeform-form, .contact-form">
+                    </div>
+                </div>
+
+            {# Help Modal for Form Selector #}
+            <div id="form-selector-help-modal" class="modal" style="display: none; width: 600px;">
+                <div class="body" style="padding: 24px; max-height: 60vh; overflow-y: auto;">
+                    <h2 style="margin-top: 0;">Finding Your Form Selector</h2>
+                    <p>A CSS selector identifies which form(s) on your page should be tracked for conversions.</p>
+
+                    <h3 style="margin-top: 20px;">Common Selectors</h3>
+                    <table class="data fullwidth" style="margin-bottom: 20px;">
+                        <thead>
+                            <tr>
+                                <th>Form Plugin</th>
+                                <th>Selector</th>
+                                <th style="width: 40px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>Freeform</strong> (all forms)</td>
+                                <td><code>.freeform-form</code></td>
+                                <td><button type="button" class="btn small form-selector-insert" data-selector=".freeform-form">Use</button></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Freeform</strong> (specific form by handle)</td>
+                                <td><code>form[data-freeform-form="contact"]</code></td>
+                                <td><button type="button" class="btn small form-selector-insert" data-selector="form[data-freeform-form=&quot;YOUR_HANDLE&quot;]">Use</button></td>
+                            </tr>
+                            <tr>
+                                <td>Form with <strong>ID</strong></td>
+                                <td><code>#contact-form</code></td>
+                                <td><button type="button" class="btn small form-selector-insert" data-selector="#contact-form">Use</button></td>
+                            </tr>
+                            <tr>
+                                <td>Form with <strong>class</strong></td>
+                                <td><code>.contact-form</code></td>
+                                <td><button type="button" class="btn small form-selector-insert" data-selector=".contact-form">Use</button></td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <h3>How to Find Your Form's Selector</h3>
+                    <ol style="margin-bottom: 20px;">
+                        <li>Visit your page with the form in Chrome or Firefox</li>
+                        <li>Right-click on the form and select <strong>"Inspect"</strong></li>
+                        <li>Look at the <code>&lt;form&gt;</code> tag in the Elements panel</li>
+                        <li>Find its <code>id</code> (use <code>#id-name</code>) or <code>class</code> (use <code>.class-name</code>)</li>
+                    </ol>
+
+                    <div style="padding: 12px; background: #fff3cd; border-radius: 4px; color: #856404;">
+                        <strong>Tip:</strong> Avoid tracking generic forms like search bars or filters. Be specific with your selector to only track conversion forms.
+                    </div>
+                </div>
+                <div class="footer" style="padding: 12px 24px; border-top: 1px solid #e3e5e8;">
+                    <button type="button" class="btn submit" id="form-selector-help-close">Close</button>
+                </div>
+            </div>
+
+            {{ forms.selectField({
+                label: "Success Detection"|t('abtestcraft'),
+                instructions: "How to detect a successful form submission."|t('abtestcraft'),
+                id: 'goals-form-successMethod',
+                name: 'goals[form][config][successMethod]',
+                options: [
+                    { label: 'Success Message Appears (AJAX forms)', value: 'element' },
+                    { label: 'Thank You Page Redirect', value: 'redirect' },
+                    { label: 'Any Submission (not recommended)', value: 'any' },
+                ],
+                value: formGoal ? formGoal.getSuccessMethod() : 'element',
+            }) }}
+
+            <div id="goals-form-successSelector-field" class="field" style="{{ formGoal and formGoal.getSuccessMethod() == 'any' ? 'display: none;' : '' }}">
+                <div class="heading">
+                    <label id="goals-form-successSelector-label" for="goals-form-successSelector">
+                        {{ formGoal and formGoal.getSuccessMethod() == 'redirect' ? 'Thank You Page URL' : 'Success Element Selector' }}
+                    </label>
+                </div>
+                <div class="instructions">
+                    <p id="goals-form-successSelector-instructions">
+                        {{ formGoal and formGoal.getSuccessMethod() == 'redirect' ? 'URL path the form redirects to after successful submission.' : 'CSS selector for the element that appears when form submits successfully.' }}
+                    </p>
+                </div>
+                <div class="input ltr">
+                    <input type="text"
+                           id="goals-form-successSelector"
+                           name="goals[form][config][successSelector]"
+                           class="text fullwidth"
+                           value="{{ formGoal ? formGoal.getSuccessSelector()|e('html_attr') : '.freeform-form-success, .alert-success' }}"
+                           placeholder="{{ formGoal and formGoal.getSuccessMethod() == 'redirect' ? '/thank-you' : '.freeform-form-success, .alert-success' }}">
+                </div>
+            </div>
+            </div>{# end #form-advanced-mode #}
+        </div>
+    </div>
+
+    <hr style="margin: 20px 0;">
+
+    {# Phone Clicks Goal #}
+    {% set phoneGoal = existingGoals.phone ?? null %}
+    <div class="field goal-field" id="goal-phone-field">
+        <div class="heading">
+            <label>
+                {{ forms.lightswitch({
+                    id: 'goals-phone-enabled',
+                    name: 'goals[phone][isEnabled]',
+                    on: phoneGoal ? phoneGoal.isEnabled : false,
+                    small: true,
+                }) }}
+                <span style="margin-left: 8px; font-weight: 600;">Phone Clicks</span>
+            </label>
+        </div>
+        <div class="instructions"><p>Automatically track clicks on tel: links (phone numbers).</p></div>
+        <input type="hidden" name="goals[phone][goalType]" value="phone">
+    </div>
+
+    <hr style="margin: 20px 0;">
+
+    {# Email Clicks Goal #}
+    {% set emailGoal = existingGoals.email ?? null %}
+    <div class="field goal-field" id="goal-email-field">
+        <div class="heading">
+            <label>
+                {{ forms.lightswitch({
+                    id: 'goals-email-enabled',
+                    name: 'goals[email][isEnabled]',
+                    on: emailGoal ? emailGoal.isEnabled : false,
+                    small: true,
+                }) }}
+                <span style="margin-left: 8px; font-weight: 600;">Email Clicks</span>
+            </label>
+        </div>
+        <div class="instructions"><p>Automatically track clicks on mailto: links.</p></div>
+        <input type="hidden" name="goals[email][goalType]" value="email">
+    </div>
+
+    <hr style="margin: 20px 0;">
+
+    {# File Downloads Goal #}
+    {% set downloadGoal = existingGoals.download ?? null %}
+    <div class="field goal-field" id="goal-download-field">
+        <div class="heading">
+            <label>
+                {{ forms.lightswitch({
+                    id: 'goals-download-enabled',
+                    name: 'goals[download][isEnabled]',
+                    on: downloadGoal ? downloadGoal.isEnabled : false,
+                    small: true,
+                }) }}
+                <span style="margin-left: 8px; font-weight: 600;">File Downloads</span>
+            </label>
+        </div>
+        <div class="instructions"><p>Track downloads of specific file types.</p></div>
+        <div class="goal-config" id="goal-download-config" style="margin-top: 12px; padding: 16px; background: #f8fafc; border-radius: 6px; {{ not downloadGoal or not downloadGoal.isEnabled ? 'display: none;' : '' }}">
+            <input type="hidden" name="goals[download][goalType]" value="download">
+
+            {{ forms.textField({
+                label: "File Extensions"|t('abtestcraft'),
+                instructions: "Comma-separated list of file extensions to track."|t('abtestcraft'),
+                id: 'goals-download-extensions',
+                name: 'goals[download][config][extensions]',
+                value: downloadGoal ? downloadGoal.getFileExtensions()|join(', ') : 'pdf, doc, docx, xls, xlsx, zip',
+                placeholder: 'pdf, doc, docx, zip',
+            }) }}
+        </div>
+    </div>
+
+    <hr style="margin: 20px 0;">
+
+    {# Page Visit Goal #}
+    {% set pageGoal = existingGoals.page ?? null %}
+    <div class="field goal-field" id="goal-page-field">
+        <div class="heading">
+            <label>
+                {{ forms.lightswitch({
+                    id: 'goals-page-enabled',
+                    name: 'goals[page][isEnabled]',
+                    on: pageGoal ? pageGoal.isEnabled : false,
+                    small: true,
+                }) }}
+                <span style="margin-left: 8px; font-weight: 600;">Page Visit</span>
+            </label>
+        </div>
+        <div class="instructions"><p>Track when visitors reach a specific page (e.g., thank you page, pricing page).</p></div>
+        <div class="goal-config" id="goal-page-config" style="margin-top: 12px; padding: 16px; background: #f8fafc; border-radius: 6px; {{ not pageGoal or not pageGoal.isEnabled ? 'display: none;' : '' }}">
+            <input type="hidden" name="goals[page][goalType]" value="page">
+
+            {{ forms.textField({
+                label: "URL Path"|t('abtestcraft'),
+                instructions: "The page URL path to track as a conversion."|t('abtestcraft'),
+                id: 'goals-page-url',
+                name: 'goals[page][config][pageUrl]',
+                value: pageGoal ? pageGoal.getPageUrl() : '',
+                placeholder: '/thank-you',
+            }) }}
+
+            {{ forms.selectField({
+                label: "Match Type"|t('abtestcraft'),
+                instructions: "How to match the URL."|t('abtestcraft'),
+                id: 'goals-page-matchType',
+                name: 'goals[page][config][matchType]',
+                options: [
+                    { label: 'Exact Match', value: 'exact' },
+                    { label: 'Starts With', value: 'startsWith' },
+                    { label: 'Contains', value: 'contains' },
+                ],
+                value: pageGoal ? pageGoal.getMatchType() : 'exact',
+            }) }}
+        </div>
+    </div>
+
+    <hr style="margin: 20px 0;">
+
+    {# Custom Event Goal #}
+    {% set customGoal = existingGoals.custom ?? null %}
+    <div class="field goal-field" id="goal-custom-field">
+        <div class="heading">
+            <label>
+                {{ forms.lightswitch({
+                    id: 'goals-custom-enabled',
+                    name: 'goals[custom][isEnabled]',
+                    on: customGoal ? customGoal.isEnabled : false,
+                    small: true,
+                }) }}
+                <span style="margin-left: 8px; font-weight: 600;">Custom Event</span>
+            </label>
+        </div>
+        <div class="instructions"><p>Track custom JavaScript events triggered by your code.</p></div>
+        <div class="goal-config" id="goal-custom-config" style="margin-top: 12px; padding: 16px; background: #f8fafc; border-radius: 6px; {{ not customGoal or not customGoal.isEnabled ? 'display: none;' : '' }}">
+            <input type="hidden" name="goals[custom][goalType]" value="custom">
+
+            <div class="field">
+                <div class="heading">
+                    <label for="goals-custom-eventName">Event Name(s)</label>
+                    <button type="button" class="btn small" id="custom-event-help-btn" style="margin-left: 8px; padding: 2px 8px; font-size: 12px;">
+                        Help
+                    </button>
+                </div>
+                <div class="instructions">
+                    <p>Custom event name(s) to track. Separate multiple event names with commas. Call <code>ABTestCraft.trackConversion('event-name')</code> in your JavaScript.</p>
+                </div>
+                <div class="input ltr">
+                    <input type="text"
+                           id="goals-custom-eventName"
+                           name="goals[custom][config][eventName]"
+                           class="text fullwidth code"
+                           value="{{ customGoal ? customGoal.getEventName()|e('html_attr') : '' }}"
+                           placeholder="purchase_complete, add_to_cart">
+                </div>
+            </div>
+
+            {# Help Modal for Custom Event #}
+            <div id="custom-event-help-modal" class="modal" style="display: none; width: 600px;">
+                <div class="body" style="padding: 24px; max-height: 60vh; overflow-y: auto;">
+                    <h2 style="margin-top: 0;">Custom Event Tracking</h2>
+                    <p>Use custom events to track conversions that happen through JavaScript interactions that aren't automatically detected (like add-to-cart, video plays, or custom checkout flows).</p>
+
+                    <h3 style="margin-top: 20px;">How It Works</h3>
+                    <ol style="margin-bottom: 20px;">
+                        <li>Enter one or more event names above, separated by commas (e.g., <code>purchase_complete, add_to_cart</code>)</li>
+                        <li>Call the tracking function in your JavaScript when the conversion happens</li>
+                        <li>The plugin will record the conversion for the current test variant</li>
+                    </ol>
+
+                    <div style="padding: 12px; background: #d4edda; border-radius: 4px; color: #155724; margin-bottom: 20px;">
+                        <strong>Multiple events supported:</strong> You can track multiple custom events in a single test. Simply separate event names with commas (e.g., <code>purchase_complete, add_to_cart, checkout_started</code>).
+                    </div>
+
+                    <h3>JavaScript API</h3>
+                    <div style="background: #1e1e1e; border-radius: 6px; padding: 16px; margin-bottom: 20px;">
+                        <code style="color: #9cdcfe; font-size: 14px; white-space: pre-wrap;">// Track a custom conversion
+ABTestCraft.trackConversion('your-event-name');</code>
+                    </div>
+
+                    <h3>Examples</h3>
+                    <table class="data fullwidth" style="margin-bottom: 20px;">
+                        <thead>
+                            <tr>
+                                <th>Use Case</th>
+                                <th>Event Name</th>
+                                <th>Example Code</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>Purchase Complete</strong></td>
+                                <td><code>purchase_complete</code></td>
+                                <td style="font-size: 12px;"><code>ABTestCraft.trackConversion('purchase_complete');</code></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Add to Cart</strong></td>
+                                <td><code>add_to_cart</code></td>
+                                <td style="font-size: 12px;"><code>ABTestCraft.trackConversion('add_to_cart');</code></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Video Watched</strong></td>
+                                <td><code>video_complete</code></td>
+                                <td style="font-size: 12px;"><code>ABTestCraft.trackConversion('video_complete');</code></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Newsletter Signup</strong></td>
+                                <td><code>newsletter_signup</code></td>
+                                <td style="font-size: 12px;"><code>ABTestCraft.trackConversion('newsletter_signup');</code></td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <h3>Full Integration Example</h3>
+                    <div style="background: #1e1e1e; border-radius: 6px; padding: 16px; margin-bottom: 20px; overflow-x: auto;">
+                        <pre style="color: #d4d4d4; font-size: 13px; margin: 0; white-space: pre-wrap;"><span style="color: #6a9955;">// Example: Track when user completes checkout</span>
+<span style="color: #c586c0;">document</span>.<span style="color: #dcdcaa;">querySelector</span>(<span style="color: #ce9178;">'#checkout-form'</span>).<span style="color: #dcdcaa;">addEventListener</span>(<span style="color: #ce9178;">'submit'</span>, <span style="color: #c586c0;">function</span>(<span style="color: #9cdcfe;">e</span>) {
+    <span style="color: #6a9955;">// After successful checkout...</span>
+    <span style="color: #c586c0;">if</span> (<span style="color: #9cdcfe;">checkoutSuccessful</span>) {
+        <span style="color: #dcdcaa;">ABTestCraft</span>.<span style="color: #dcdcaa;">trackConversion</span>(<span style="color: #ce9178;">'purchase_complete'</span>);
+    }
+});</pre>
+                    </div>
+
+                    <div style="padding: 12px; background: #d1ecf1; border-radius: 4px; color: #0c5460;">
+                        <strong>Note:</strong> The <code>ABTestCraft</code> object is automatically available on pages where an active A/B test is running. Make sure the visitor is part of a test before calling the tracking function.
+                    </div>
+                </div>
+                <div class="footer" style="padding: 12px 24px; border-top: 1px solid #e3e5e8;">
+                    <button type="button" class="btn submit" id="custom-event-help-close">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# Keep legacy fields for backward compatibility (hidden) #}
+    <input type="hidden" name="goalType" value="{{ test.goalType ?? 'form' }}">
+    <input type="hidden" name="goalValue" value="{{ test.goalValue ?? '' }}">
+
+{% endblock %}
+
+{% block details %}
+    <div class="meta">
+        {% if not isNew %}
+            <div class="data">
+                <h5 class="heading">Status</h5>
+                <div class="value">
+                    {% switch test.status %}
+                        {% case 'draft' %}
+                            <span class="status"></span> Draft
+                        {% case 'running' %}
+                            <span class="status live"></span> Running
+                        {% case 'paused' %}
+                            <span class="status"></span> Paused
+                        {% case 'completed' %}
+                            <span class="status off"></span> Completed
+                    {% endswitch %}
+                </div>
+            </div>
+
+            {% if test.startedAt %}
+                <div class="data">
+                    <h5 class="heading">Started</h5>
+                    <div class="value">{{ test.startedAt|date('short') }}</div>
+                </div>
+            {% endif %}
+
+            {% if test.endedAt %}
+                <div class="data">
+                    <h5 class="heading">Ended</h5>
+                    <div class="value">{{ test.endedAt|date('short') }}</div>
+                </div>
+            {% endif %}
+        {% endif %}
+    </div>
+
+    {% if not isNew %}
+        <hr>
+
+        <div class="meta">
+            {% if test.canStart %}
+                {% set hasEnabledGoals = test.hasEnabledGoals() %}
+
+                {% if not hasEnabledGoals %}
+                    <div style="padding: 8px 12px; background: #fff3cd; border-radius: 4px; color: #856404; margin-bottom: 12px; font-size: 13px;">
+                        Enable at least one conversion goal to start the test.
+                    </div>
+                {% endif %}
+
+                {# Use a link styled as button to avoid nested form issues #}
+                <a href="#" class="btn submit start-test-btn" data-test-id="{{ test.id }}" {{ not hasEnabledGoals ? 'style="pointer-events: none; opacity: 0.5;"' : '' }}>Start Test</a>
+            {% endif %}
+
+            {% if test.canPause %}
+                {# Use a link styled as button to avoid nested form issues #}
+                <a href="#" class="btn pause-test-btn" data-test-id="{{ test.id }}">Pause Test</a>
+            {% endif %}
+
+            {% if test.isRunning %}
+                <a href="{{ url('abtestcraft/tests/' ~ test.id ~ '/results') }}" class="btn">View Results</a>
+            {% endif %}
+        </div>
+    {% endif %}
+{% endblock %}
+
+{% js %}
+    // Auto-generate handle from name
+    new Craft.HandleGenerator('#name', '#handle');
+
+    // Toggle goal config panels based on lightswitch state
+    function setupGoalToggles() {
+        var goalTypes = ['form', 'download', 'page', 'custom'];
+
+        goalTypes.forEach(function(goalType) {
+            var lightswitch = document.getElementById('goals-' + goalType + '-enabled');
+            var config = document.getElementById('goal-' + goalType + '-config');
+
+            if (lightswitch && config) {
+                // Listen for Craft's lightswitch change event
+                var $lightswitch = $(lightswitch).closest('.lightswitch');
+                $lightswitch.on('change', function() {
+                    var isOn = $lightswitch.hasClass('on');
+                    config.style.display = isOn ? 'block' : 'none';
+                });
+            }
+        });
+    }
+
+    // Dynamic success field based on detection method
+    function setupDynamicSuccessField() {
+        // Use more specific selector to target the actual select element
+        var $methodSelect = $('select#goals-form-successMethod');
+        var $field = $('#goals-form-successSelector-field');
+        var $label = $('#goals-form-successSelector-label');
+        var $instructions = $('#goals-form-successSelector-instructions');
+        var $input = $('#goals-form-successSelector');
+
+        // Default values for each method
+        var elementDefault = '.freeform-form-success, .alert-success';
+        var redirectDefault = '/thank-you';
+
+        function updateSuccessField() {
+            var method = $methodSelect.val();
+            var currentValue = $input.val();
+
+            if (method === 'element') {
+                $field.show();
+                $label.text('Success Element Selector');
+                $instructions.text('CSS selector for the element that appears when form submits successfully.');
+                $input.attr('placeholder', elementDefault);
+                // Update value if it was the redirect default or empty
+                if (currentValue === redirectDefault || currentValue === '') {
+                    $input.val(elementDefault);
+                }
+            } else if (method === 'redirect') {
+                $field.show();
+                $label.text('Thank You Page URL');
+                $instructions.text('URL path the form redirects to after successful submission.');
+                $input.attr('placeholder', redirectDefault);
+                // Update value if it was the element default or empty
+                if (currentValue === elementDefault || currentValue === '') {
+                    $input.val(redirectDefault);
+                }
+            } else {
+                // 'any' - hide field entirely
+                $field.hide();
+            }
+        }
+
+        // Update on change
+        $methodSelect.on('change', updateSuccessField);
+
+        // Initial state (don't update value on initial load - preserve saved value)
+    }
+
+    // Form selector help modal
+    function setupFormSelectorHelp() {
+        var $helpBtn = $('#form-selector-help-btn');
+        var $modal = $('#form-selector-help-modal');
+        var $closeBtn = $('#form-selector-help-close');
+        var $selectorInput = $('#goals-form-selector');
+        var modal = null;
+
+        $helpBtn.on('click', function() {
+            if (!modal) {
+                modal = new Garnish.Modal($modal, {
+                    autoShow: false,
+                    closeOtherModals: true,
+                    hideOnEsc: true,
+                    hideOnShadeClick: true
+                });
+            }
+            modal.show();
+        });
+
+        $closeBtn.on('click', function() {
+            if (modal) {
+                modal.hide();
+            }
+        });
+
+        // Insert selector buttons
+        $('.form-selector-insert').on('click', function() {
+            var selector = $(this).data('selector');
+            $selectorInput.val(selector);
+            if (modal) {
+                modal.hide();
+            }
+        });
+    }
+
+    // Custom event help modal
+    function setupCustomEventHelp() {
+        var $helpBtn = $('#custom-event-help-btn');
+        var $modal = $('#custom-event-help-modal');
+        var $closeBtn = $('#custom-event-help-close');
+        var modal = null;
+
+        $helpBtn.on('click', function() {
+            if (!modal) {
+                modal = new Garnish.Modal($modal, {
+                    autoShow: false,
+                    closeOtherModals: true,
+                    hideOnEsc: true,
+                    hideOnShadeClick: true
+                });
+            }
+            modal.show();
+        });
+
+        $closeBtn.on('click', function() {
+            if (modal) {
+                modal.hide();
+            }
+        });
+    }
+
+    // Start/Pause test buttons (use AJAX to avoid nested form issues)
+    function setupTestActions() {
+        var $startBtn = $('.start-test-btn');
+        var $pauseBtn = $('.pause-test-btn');
+
+        $startBtn.on('click', function(e) {
+            e.preventDefault();
+            var testId = $(this).data('test-id');
+
+            Craft.sendActionRequest('POST', 'abtestcraft/tests/start', {
+                data: { testId: testId }
+            }).then(function(response) {
+                Craft.cp.displayNotice('Test started.');
+                window.location.reload();
+            }).catch(function(error) {
+                Craft.cp.displayError(error.response?.data?.message || 'Could not start test.');
+            });
+        });
+
+        $pauseBtn.on('click', function(e) {
+            e.preventDefault();
+            var testId = $(this).data('test-id');
+
+            Craft.sendActionRequest('POST', 'abtestcraft/tests/pause', {
+                data: { testId: testId }
+            }).then(function(response) {
+                Craft.cp.displayNotice('Test paused.');
+                window.location.reload();
+            }).catch(function(error) {
+                Craft.cp.displayError(error.response?.data?.message || 'Could not pause test.');
+            });
+        });
+    }
+
+    // Toggle between Easy (Smart) and Advanced mode for form tracking
+    function setupFormModeToggle() {
+        var $modeSelect = $('select#goals-form-mode');
+        var $smartMode = $('#form-smart-mode');
+        var $advancedMode = $('#form-advanced-mode');
+
+        function updateFormMode() {
+            var mode = $modeSelect.val();
+
+            if (mode === 'smart') {
+                $smartMode.show();
+                $advancedMode.hide();
+            } else {
+                $smartMode.hide();
+                $advancedMode.show();
+            }
+        }
+
+        $modeSelect.on('change', updateFormMode);
+    }
+
+    // Run on DOM ready
+    function initFormGoalUX() {
+        setupGoalToggles();
+        setupFormModeToggle();
+        setupDynamicSuccessField();
+        setupFormSelectorHelp();
+        setupCustomEventHelp();
+        setupTestActions();
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initFormGoalUX);
+    } else {
+        initFormGoalUX();
+    }
+{% endjs %}

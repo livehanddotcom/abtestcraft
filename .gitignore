@@ -1,0 +1,39 @@
+# Dependencies
+/vendor/
+composer.lock
+
+# Test artifacts
+/tests/_output/
+/tests/_craft/storage/
+/tests/_support/_generated/
+
+# Internal planning docs (not for public repo)
+/docs/internal/
+
+# Auto-generated
+/cpresources/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+.Thumbs.db
+
+# Environment files (keep .env.example)
+.env
+tests/.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Composer
+composer.phar
+
+# PHPUnit
+.phpunit.result.cache

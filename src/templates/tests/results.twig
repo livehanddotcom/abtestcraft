@@ -1,0 +1,749 @@
+{% extends "_layouts/cp" %}
+
+{% set title = test.name ~ " - Results" %}
+{% set selectedSubnavItem = "tests" %}
+
+{% block actionButton %}
+    <a href="{{ url('abtestcraft/tests/' ~ test.id) }}" class="btn">Edit Test</a>
+{% endblock %}
+
+{% block content %}
+    {# Custom Styles #}
+    <style>
+        .abtestcraft-results {
+            --st-green: #22c55e;
+            --st-red: #ef4444;
+            --st-blue: #6366f1;
+            --st-gray: #64748b;
+        }
+        .st-summary-card {
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 20px 24px;
+            margin-bottom: 24px;
+        }
+        .st-summary-card p {
+            margin: 0;
+            font-size: 15px;
+            line-height: 1.6;
+            color: #475569;
+        }
+        .st-stat-card {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 20px;
+            height: 100%;
+        }
+        .st-stat-card h3 {
+            margin: 0 0 16px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .st-big-number {
+            font-size: 42px;
+            font-weight: 700;
+            line-height: 1;
+            margin-bottom: 4px;
+        }
+        .st-big-number.positive { color: var(--st-green); }
+        .st-big-number.negative { color: var(--st-red); }
+        .st-big-number.neutral { color: #1e293b; }
+        .st-confidence-interval {
+            font-size: 13px;
+            color: #64748b;
+            margin-top: 4px;
+        }
+        .st-stat-label {
+            font-size: 13px;
+            color: #64748b;
+        }
+        .st-stat-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid #e2e8f0;
+        }
+        .st-stat-item {
+            text-align: left;
+        }
+        .st-stat-value {
+            font-size: 20px;
+            font-weight: 600;
+            color: #1e293b;
+        }
+        .st-progress-bar {
+            background: #e2e8f0;
+            border-radius: 4px;
+            height: 8px;
+            overflow: hidden;
+            margin: 12px 0;
+        }
+        .st-progress-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+        .st-progress-fill.green { background: var(--st-green); }
+        .st-progress-fill.blue { background: var(--st-blue); }
+        .st-chart-container {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 24px;
+        }
+        .st-chart-container h3 {
+            margin: 0 0 16px;
+            font-size: 16px;
+            font-weight: 600;
+            color: #1e293b;
+        }
+        .st-chart-wrapper {
+            position: relative;
+            height: 250px;
+        }
+        .st-status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+        .st-status-badge.significant {
+            background: #dcfce7;
+            color: #166534;
+        }
+        .st-status-badge.not-significant {
+            background: #fef9c3;
+            color: #854d0e;
+        }
+        .st-goal-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .st-goal-table th,
+        .st-goal-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .st-goal-table th {
+            font-weight: 600;
+            color: #64748b;
+            font-size: 13px;
+        }
+        .st-lift-positive { color: var(--st-green); font-weight: 600; }
+        .st-lift-negative { color: var(--st-red); font-weight: 600; }
+    </style>
+
+    <div class="abtestcraft-results">
+        {# Status Banner #}
+        <div class="pane" style="margin-bottom: 24px;">
+            {% if test.isCompleted %}
+                {# Enhanced Completed Test Banner #}
+                <div style="text-align: center; padding: 16px 0;">
+                    <div style="font-size: 14px; color: #8f98a3; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">
+                        Test Completed
+                    </div>
+
+                    {% if test.winnerVariant %}
+                        <div style="font-size: 32px; font-weight: bold; color: #27ae60; margin-bottom: 8px;">
+                            {{ test.winnerVariant|upper }} WINS
+                        </div>
+                        <div style="font-size: 20px; margin-bottom: 16px;">
+                            <span style="color: {% if stats.improvement > 0 %}#27ae60{% elseif stats.improvement < 0 %}#e74c3c{% else %}#3f4d5a{% endif %};">
+                                {% if stats.improvement > 0 %}+{% endif %}{{ stats.improvement }}% improvement
+                            </span>
+                            <span style="color: #8f98a3; margin-left: 12px;">
+                                {{ (stats.confidence * 100)|number_format(1) }}% confidence
+                            </span>
+                        </div>
+                    {% else %}
+                        <div style="font-size: 24px; font-weight: bold; color: #8f98a3; margin-bottom: 16px;">
+                            No Winner Declared
+                        </div>
+                    {% endif %}
+
+                    <div style="color: #8f98a3; font-size: 14px;">
+                        {% set duration = test.getDurationDays() %}
+                        {% if duration %}
+                            Ran for {{ duration }} day{% if duration != 1 %}s{% endif %}
+                            {% if test.startedAt and test.endedAt %}
+                                ({{ test.startedAt|date('M j') }} &ndash; {{ test.endedAt|date('M j, Y') }})
+                            {% endif %}
+                            &bull;
+                        {% endif %}
+                        {{ stats.totalVisitors|default(stats.visitors.control + stats.visitors.variant) }} total visitors
+                    </div>
+                </div>
+            {% else %}
+                {# Running/Paused/Draft Banner #}
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <h2 style="margin: 0;">
+                            {% switch test.status %}
+                                {% case 'running' %}
+                                    <span class="status live"></span> Test Running
+                                {% case 'paused' %}
+                                    <span class="status"></span> Test Paused
+                                {% default %}
+                                    <span class="status"></span> Test Draft
+                            {% endswitch %}
+                        </h2>
+                        {% if timeEstimate and not timeEstimate.reached %}
+                            <p class="light" style="margin: 8px 0 0;">
+                                Estimated {{ timeEstimate.daysRemaining }} days to reach significance
+                                ({{ timeEstimate.currentImpressions }}/{{ timeEstimate.impressionsNeeded }} impressions)
+                            </p>
+                        {% endif %}
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        {% if test.isRunning %}
+                            <form method="post" style="margin: 0;">
+                                {{ csrfInput() }}
+                                {{ actionInput('abtestcraft/tests/pause') }}
+                                {{ redirectInput('abtestcraft/tests/' ~ test.id ~ '/results') }}
+                                <input type="hidden" name="testId" value="{{ test.id }}">
+                                <button type="submit" class="btn" style="background: #f1f5f9; border-color: #e2e8f0; color: #475569;">Pause Test</button>
+                            </form>
+                            <span style="width: 1px; height: 24px; background: #e2e8f0;"></span>
+                        {% endif %}
+
+                        {% if test.isRunning or test.status == 'paused' %}
+                            <form method="post" style="margin: 0; display: flex; align-items: center; gap: 8px;">
+                                {{ csrfInput() }}
+                                {{ actionInput('abtestcraft/tests/complete') }}
+                                {{ redirectInput('abtestcraft/tests/' ~ test.id ~ '/results') }}
+                                <input type="hidden" name="testId" value="{{ test.id }}">
+                                <button type="submit" name="winner" value="" class="btn" style="background: #fef3c7; border-color: #fcd34d; color: #92400e;">End Test (No Winner)</button>
+                                <button type="submit" name="winner" value="control" class="btn" style="background: #dbeafe; border-color: #93c5fd; color: #1e40af;">Control Wins</button>
+                                <button type="submit" name="winner" value="variant" class="btn" style="background: #dcfce7; border-color: #86efac; color: #166534;">Variant Wins</button>
+                            </form>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+
+        {# Summary Card #}
+        <div class="st-summary-card">
+            <p>
+                {% set daysRunning = test.startedAt ? max(1, date().diff(test.startedAt).days) : 0 %}
+                {% if stats.totalVisitors == 0 %}
+                    <strong>No visitors yet.</strong> Start driving traffic to your test page to collect data.
+                {% elseif stats.isSignificant %}
+                    After <strong>{{ daysRunning }} day{{ daysRunning != 1 ? 's' }}</strong> and <strong>{{ stats.totalVisitors }} visitors</strong>,
+                    the <strong>{{ stats.winner|capitalize }}</strong> is winning with
+                    <strong>{{ stats.improvement > 0 ? '+' }}{{ stats.improvement }}%</strong> improvement.
+                    Results are statistically significant at <strong>{{ (stats.confidence * 100)|number_format(1) }}%</strong> confidence.
+                {% else %}
+                    After <strong>{{ daysRunning }} day{{ daysRunning != 1 ? 's' }}</strong> and <strong>{{ stats.totalVisitors }} visitors</strong>,
+                    {% if stats.improvement > 0 %}
+                        the Variant is showing a <strong>+{{ stats.improvement }}%</strong> improvement
+                    {% elseif stats.improvement < 0 %}
+                        Control is outperforming Variant by <strong>{{ stats.improvement|abs }}%</strong>
+                    {% else %}
+                        both variants are performing similarly
+                    {% endif %}
+                    but results are <strong>not yet statistically significant</strong>.
+                    {% if timeEstimate and not timeEstimate.reached %}
+                        Continue testing for approximately <strong>{{ timeEstimate.daysRemaining }} more day{{ timeEstimate.daysRemaining != 1 ? 's' }}</strong>.
+                    {% endif %}
+                {% endif %}
+            </p>
+        </div>
+
+        {# Main Stats Grid #}
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+            {# Control Stats #}
+            <div class="st-stat-card">
+                <h3>Control (Original)</h3>
+                <div class="st-big-number neutral">
+                    {{ stats.conversionRates.control }}%
+                </div>
+                <div class="st-stat-label">Conversion Rate</div>
+                {% if stats.confidenceIntervals.control.margin > 0 %}
+                    <div class="st-confidence-interval">
+                        &plusmn;{{ stats.confidenceIntervals.control.margin }}%
+                        ({{ stats.confidenceIntervals.control.lower }}% - {{ stats.confidenceIntervals.control.upper }}%)
+                    </div>
+                {% endif %}
+
+                <div class="st-stat-grid">
+                    <div class="st-stat-item">
+                        <div class="st-stat-value">{{ stats.visitors.control }}</div>
+                        <div class="st-stat-label">Unique Visitors</div>
+                    </div>
+                    <div class="st-stat-item">
+                        <div class="st-stat-value">{{ stats.impressions.control }}</div>
+                        <div class="st-stat-label">Impressions</div>
+                    </div>
+                    <div class="st-stat-item">
+                        <div class="st-stat-value">{{ stats.conversions.control }}</div>
+                        <div class="st-stat-label">Conversions</div>
+                    </div>
+                    <div class="st-stat-item">
+                        <div class="st-stat-value">{{ stats.sessionsPerVisitor.control }}</div>
+                        <div class="st-stat-label">Sessions/Visitor</div>
+                    </div>
+                </div>
+            </div>
+
+            {# Variant Stats #}
+            <div class="st-stat-card">
+                <h3>Variant (Test)</h3>
+                <div class="st-big-number {% if stats.improvement > 0 %}positive{% elseif stats.improvement < 0 %}negative{% else %}neutral{% endif %}">
+                    {{ stats.conversionRates.variant }}%
+                </div>
+                <div class="st-stat-label">Conversion Rate</div>
+                {% if stats.confidenceIntervals.variant.margin > 0 %}
+                    <div class="st-confidence-interval">
+                        &plusmn;{{ stats.confidenceIntervals.variant.margin }}%
+                        ({{ stats.confidenceIntervals.variant.lower }}% - {{ stats.confidenceIntervals.variant.upper }}%)
+                    </div>
+                {% endif %}
+
+                <div class="st-stat-grid">
+                    <div class="st-stat-item">
+                        <div class="st-stat-value">{{ stats.visitors.variant }}</div>
+                        <div class="st-stat-label">Unique Visitors</div>
+                    </div>
+                    <div class="st-stat-item">
+                        <div class="st-stat-value">{{ stats.impressions.variant }}</div>
+                        <div class="st-stat-label">Impressions</div>
+                    </div>
+                    <div class="st-stat-item">
+                        <div class="st-stat-value">{{ stats.conversions.variant }}</div>
+                        <div class="st-stat-label">Conversions</div>
+                    </div>
+                    <div class="st-stat-item">
+                        <div class="st-stat-value">{{ stats.sessionsPerVisitor.variant }}</div>
+                        <div class="st-stat-label">Sessions/Visitor</div>
+                    </div>
+                </div>
+            </div>
+
+            {# Significance Panel #}
+            <div class="st-stat-card">
+                <h3>Statistical Significance</h3>
+                <div class="st-big-number {% if stats.isSignificant %}positive{% else %}neutral{% endif %}">
+                    {{ (stats.confidence * 100)|number_format(1) }}%
+                </div>
+                <div class="st-stat-label">Confidence Level</div>
+
+                {# Progress bar toward 95% significance #}
+                <div class="st-progress-bar" style="margin-top: 16px;">
+                    <div class="st-progress-fill {% if stats.isSignificant %}green{% else %}blue{% endif %}"
+                         style="width: {{ min(100, stats.confidence * 100) }}%;"></div>
+                </div>
+                <div style="display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8;">
+                    <span>0%</span>
+                    <span style="color: {% if stats.isSignificant %}var(--st-green){% else %}#64748b{% endif %};">95% threshold</span>
+                    <span>100%</span>
+                </div>
+
+                <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #e2e8f0;">
+                    <div class="st-stat-value" style="color: {% if stats.improvement > 0 %}var(--st-green){% elseif stats.improvement < 0 %}var(--st-red){% else %}#1e293b{% endif %};">
+                        {% if stats.improvement > 0 %}+{% endif %}{{ stats.improvement }}%
+                    </div>
+                    <div class="st-stat-label">Relative Improvement</div>
+                </div>
+
+                <div style="margin-top: 16px;">
+                    {% if stats.isSignificant %}
+                        <span class="st-status-badge significant">
+                            Statistically Significant
+                        </span>
+                    {% else %}
+                        <span class="st-status-badge not-significant">
+                            Not Yet Significant
+                        </span>
+                    {% endif %}
+                </div>
+
+                {% if not stats.isSignificant and timeEstimate and not timeEstimate.reached %}
+                    <div style="margin-top: 12px; font-size: 13px; color: #64748b;">
+                        <strong>Sample Progress:</strong> {{ stats.progressPercent }}%<br>
+                        {{ stats.totalVisitors }} / {{ stats.sampleSizeNeeded * 2 }} visitors needed<br>
+                        Est. {{ timeEstimate.daysRemaining }} day{{ timeEstimate.daysRemaining != 1 ? 's' }} remaining
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        {# Charts Section - Only show if we have daily data #}
+        {% if stats.dailyStats|length > 0 %}
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+                {# Conversion Rate Trend Chart #}
+                <div class="st-chart-container">
+                    <h3>Conversion Rate Trend</h3>
+                    <div class="st-chart-wrapper">
+                        <canvas id="conversionRateChart"></canvas>
+                    </div>
+                </div>
+
+                {# Daily Traffic Chart #}
+                <div class="st-chart-container">
+                    <h3>Daily Traffic</h3>
+                    <div class="st-chart-wrapper">
+                        <canvas id="trafficChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+
+        {# Per-Goal Stats #}
+        {% set goals = test.getGoals() %}
+        {% if goals|length > 0 %}
+            <div class="st-chart-container">
+                <h3>Conversion Breakdown by Goal</h3>
+                <table class="st-goal-table">
+                    <thead>
+                        <tr>
+                            <th>Goal Type</th>
+                            <th>Control</th>
+                            <th>Variant</th>
+                            <th>Absolute Diff</th>
+                            <th>Relative Lift</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for goal in goals %}
+                            {% set goalStats = stats.goalStats[goal.goalType] ?? null %}
+                            {% set controlVal = goalStats.control ?? 0 %}
+                            {% set variantVal = goalStats.variant ?? 0 %}
+                            {% set absoluteDiff = variantVal - controlVal %}
+                            {% set lift = controlVal > 0 ? ((variantVal - controlVal) / controlVal * 100)|round(1) : (variantVal > 0 ? 100 : 0) %}
+                            <tr>
+                                <td>
+                                    {% switch goal.goalType %}
+                                        {% case 'form' %}
+                                            Form Submissions
+                                        {% case 'phone' %}
+                                            Phone Clicks
+                                        {% case 'email' %}
+                                            Email Clicks
+                                        {% case 'download' %}
+                                            File Downloads
+                                        {% case 'page' %}
+                                            Page Visits
+                                        {% case 'custom' %}
+                                            Custom Event
+                                        {% default %}
+                                            {{ goal.goalType|capitalize }}
+                                    {% endswitch %}
+                                </td>
+                                <td>{{ controlVal }}</td>
+                                <td>{{ variantVal }}</td>
+                                <td class="{% if absoluteDiff > 0 %}st-lift-positive{% elseif absoluteDiff < 0 %}st-lift-negative{% endif %}">
+                                    {% if absoluteDiff > 0 %}+{% endif %}{{ absoluteDiff }}
+                                </td>
+                                <td class="{% if lift > 0 %}st-lift-positive{% elseif lift < 0 %}st-lift-negative{% endif %}">
+                                    {% if lift > 0 %}+{% endif %}{{ lift }}%
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% endif %}
+
+        {# Test Context - shows hypothesis and variant changes #}
+        {% if test.hypothesis or test.variantDescription %}
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin-top: 24px;">
+            <h3 style="margin: 0 0 16px 0; font-size: 16px; color: #1e293b;">Test Context</h3>
+
+            {% if test.hypothesis %}
+            <div style="margin-bottom: 16px;">
+                <strong style="color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Hypothesis</strong>
+                <p style="margin: 4px 0 0 0; color: #334155; white-space: pre-wrap;">{{ test.hypothesis }}</p>
+            </div>
+            {% endif %}
+
+            {% if test.variantDescription %}
+            <div>
+                <strong style="color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Variant Changes</strong>
+                <p style="margin: 4px 0 0 0; color: #334155; white-space: pre-wrap;">{{ test.variantDescription }}</p>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {# Learnings - editable textarea with save button #}
+        <div style="background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 20px; margin-top: 24px;">
+            <h3 style="margin: 0 0 8px 0; font-size: 16px; color: #92400e;">Test Learnings</h3>
+            <p style="margin: 0 0 12px 0; color: #b45309; font-size: 13px;">
+                What did you learn from this test? Record your insights for future reference.
+            </p>
+            <form method="post" id="learnings-form">
+                {{ csrfInput() }}
+                {{ actionInput('abtestcraft/tests/save-learnings') }}
+                {{ hiddenInput('testId', test.id) }}
+                {{ redirectInput('abtestcraft/tests/' ~ test.id ~ '/results') }}
+                <textarea
+                    name="learnings"
+                    id="learnings"
+                    rows="4"
+                    style="width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 14px; resize: vertical; font-family: inherit;"
+                    placeholder="e.g., The variant with testimonials increased conversions by 23%. We should test testimonials on other landing pages..."
+                >{{ test.learnings }}</textarea>
+                <div style="margin-top: 12px; text-align: right;">
+                    <button type="submit" class="btn submit">Save Learnings</button>
+                </div>
+            </form>
+        </div>
+
+        {# Test Details (Collapsible) #}
+        <details class="pane" style="margin-top: 24px;">
+            <summary style="cursor: pointer; font-weight: 600; padding: 12px 0;">Test Details</summary>
+            <table class="data fullwidth" style="margin-top: 12px;">
+                <tbody>
+                    <tr>
+                        <th style="width: 200px;">Test Handle</th>
+                        <td><code>{{ test.handle }}</code></td>
+                    </tr>
+                    <tr>
+                        <th>Traffic Split</th>
+                        <td>{{ 100 - test.trafficSplit }}% Control / {{ test.trafficSplit }}% Variant</td>
+                    </tr>
+                    <tr>
+                        <th>Control Entry</th>
+                        <td>
+                            {% set controlEntry = test.controlEntry %}
+                            {% if controlEntry %}
+                                <a href="{{ controlEntry.cpEditUrl }}">{{ controlEntry.title }}</a>
+                                - <a href="{{ controlEntry.url }}" target="_blank">View</a>
+                            {% else %}
+                                <em class="light">Entry not found</em>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Variant Entry</th>
+                        <td>
+                            {% set variantEntry = test.variantEntry %}
+                            {% if variantEntry %}
+                                <a href="{{ variantEntry.cpEditUrl }}">{{ variantEntry.title }}</a>
+                                - <a href="{{ variantEntry.url }}" target="_blank">View</a>
+                            {% else %}
+                                <em class="light">Entry not found</em>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Conversion Goals</th>
+                        <td>
+                            {% set goals = test.getGoals() %}
+                            {% if goals|length > 0 %}
+                                {% for goal in goals %}
+                                    <span class="token" style="margin-right: 4px;">
+                                        {% switch goal.goalType %}
+                                            {% case 'form' %}Form{% case 'phone' %}Phone{% case 'email' %}Email{% case 'download' %}Download{% case 'page' %}Page Visit{% case 'custom' %}Custom{% default %}{{ goal.goalType }}{% endswitch %}
+                                    </span>
+                                {% endfor %}
+                            {% else %}
+                                <em class="light">Legacy: {{ test.goalType|capitalize }}</em>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% if test.startedAt %}
+                        <tr>
+                            <th>Started</th>
+                            <td>{{ test.startedAt|date('long') }}</td>
+                        </tr>
+                    {% endif %}
+                    {% if test.endedAt %}
+                        <tr>
+                            <th>Ended</th>
+                            <td>{{ test.endedAt|date('long') }}</td>
+                        </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </details>
+
+        {# Daily Stats Table (Collapsible) #}
+        {% if stats.dailyStats|length > 1 %}
+            <details class="pane" style="margin-top: 24px;">
+                <summary style="cursor: pointer; font-weight: 600; padding: 12px 0;">Daily Performance Data</summary>
+                <table class="data fullwidth" style="margin-top: 12px;">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Control Visitors</th>
+                            <th>Control Conv.</th>
+                            <th>Control Rate</th>
+                            <th>Variant Visitors</th>
+                            <th>Variant Conv.</th>
+                            <th>Variant Rate</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for day in stats.dailyStats %}
+                            <tr>
+                                <td>{{ day.date }}</td>
+                                <td>{{ day.control.impressions }}</td>
+                                <td>{{ day.control.conversions }}</td>
+                                <td>{{ day.control.rate }}%</td>
+                                <td>{{ day.variant.impressions }}</td>
+                                <td>{{ day.variant.conversions }}</td>
+                                <td>{{ day.variant.rate }}%</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </details>
+        {% endif %}
+    </div>
+{% endblock %}
+
+{% block foot %}
+    {{ parent() }}
+
+    {# Chart.js from CDN #}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+    {% if stats.dailyStats|length > 0 %}
+    <script>
+        (function() {
+            // Prepare data from Twig
+            var dailyStats = {{ stats.dailyStats|json_encode|raw }};
+
+            var labels = dailyStats.map(function(d) {
+                // Format date nicely
+                var date = new Date(d.date);
+                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            });
+
+            var controlRates = dailyStats.map(function(d) { return d.control.rate; });
+            var variantRates = dailyStats.map(function(d) { return d.variant.rate; });
+            var controlImpressions = dailyStats.map(function(d) { return d.control.impressions; });
+            var variantImpressions = dailyStats.map(function(d) { return d.variant.impressions; });
+
+            // Chart defaults
+            Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+            Chart.defaults.color = '#64748b';
+
+            // Conversion Rate Trend Chart
+            var rateCtx = document.getElementById('conversionRateChart');
+            if (rateCtx) {
+                new Chart(rateCtx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Control',
+                            data: controlRates,
+                            borderColor: '#6366f1',
+                            backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.3,
+                            fill: false,
+                            pointRadius: 4,
+                            pointHoverRadius: 6
+                        }, {
+                            label: 'Variant',
+                            data: variantRates,
+                            borderColor: '#22c55e',
+                            backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.3,
+                            fill: false,
+                            pointRadius: 4,
+                            pointHoverRadius: 6
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: { usePointStyle: true, padding: 20 }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        return context.dataset.label + ': ' + context.parsed.y + '%';
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'Conversion Rate %'
+                                },
+                                ticks: {
+                                    callback: function(value) { return value + '%'; }
+                                }
+                            },
+                            x: {
+                                grid: { display: false }
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Daily Traffic Chart
+            var trafficCtx = document.getElementById('trafficChart');
+            if (trafficCtx) {
+                new Chart(trafficCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Control',
+                            data: controlImpressions,
+                            backgroundColor: 'rgba(99, 102, 241, 0.7)',
+                            borderColor: '#6366f1',
+                            borderWidth: 1
+                        }, {
+                            label: 'Variant',
+                            data: variantImpressions,
+                            backgroundColor: 'rgba(34, 197, 94, 0.7)',
+                            borderColor: '#22c55e',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: { usePointStyle: true, padding: 20 }
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'Impressions'
+                                },
+                                stacked: false
+                            },
+                            x: {
+                                grid: { display: false }
+                            }
+                        }
+                    }
+                });
+            }
+        })();
+    </script>
+    {% endif %}
+{% endblock %}

@@ -1,0 +1,13 @@
+# Integration Test Suite Configuration
+#
+# These tests run with a full Craft CMS application context.
+# They have access to the database, services, and can test
+# full plugin functionality.
+#
+# Run: ./vendor/bin/codecept run integration
+
+actor: IntegrationTester
+modules:
+  enabled:
+    - Asserts
+    - \craft\test\Craft

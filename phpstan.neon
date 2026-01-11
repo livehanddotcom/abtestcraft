@@ -1,0 +1,34 @@
+parameters:
+    level: 5
+    paths:
+        - src
+    excludePaths:
+        - src/migrations/*
+    scanDirectories:
+        - vendor/craftcms/cms/src
+        - vendor/yiisoft/yii2
+    reportUnmatchedIgnoredErrors: false
+    ignoreErrors:
+        # Craft CMS extends Yii with additional methods - these are all false positives
+        # The regex patterns need to match the union type format like yii\console\Application|yii\web\Application
+        - '#Call to an undefined method yii\\[a-zA-Z\\|]+::[a-zA-Z]+\(\)#'
+        - '#Access to an undefined property yii\\[a-zA-Z\\|]+::\$[a-zA-Z]+#'
+        # Craft model dynamic properties (Settings model)
+        - '#Access to an undefined property craft\\base\\Model::\$[a-zA-Z]+#'
+        - '#Call to an undefined method craft\\base\\Model::[a-zA-Z]+\(\)#'
+        # ActiveRecord dynamic attributes from database
+        - '#Access to an undefined property [a-zA-Z\\]+Record::\$[a-zA-Z]+#'
+        - '#Cannot access property \$[a-zA-Z]+ on array\|yii\\db\\ActiveRecordInterface#'
+        # ActiveRecord return types
+        - '#expects [a-zA-Z\\]+Record, (array\|)?yii\\db\\ActiveRecordInterface given#'
+        # DateTime constructor from ActiveRecord string values
+        - '#Parameter \#1 \$datetime of class DateTime constructor expects string, DateTime given#'
+        # Property type mismatches with ActiveRecord
+        - '#Property [a-zA-Z\\]+Record::\$[a-zA-Z]+ \([a-zA-Z\\|]+\) does not accept string#'
+        # ElementInterface vs Entry return types
+        - '#should return craft\\elements\\Entry\|null but returns craft\\base\\ElementInterface\|null#'
+        # Craft element methods
+        - '#Method craft\\elements\\Entry::[a-zA-Z]+\(\) invoked with [0-9] parameters?, [0-9] required#'
+        # Division by complex union types in stats calculations
+        - '#Binary operation "/" between float and .+ results in an error#'
+    treatPhpDocTypesAsCertain: false

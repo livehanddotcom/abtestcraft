@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<ruleset name="ABTestCraft">
+    <description>PSR-12 coding standard for ABTestCraft CraftCMS plugin</description>
+
+    <file>src</file>
+
+    <arg name="colors"/>
+    <arg value="sp"/>
+    <arg name="extensions" value="php"/>
+
+    <!-- Use PSR-12 as base standard -->
+    <rule ref="PSR12"/>
+
+    <!-- Allow longer lines in templates -->
+    <rule ref="Generic.Files.LineLength">
+        <exclude-pattern>*/templates/*</exclude-pattern>
+        <properties>
+            <property name="lineLimit" value="120"/>
+            <property name="absoluteLineLimit" value="200"/>
+        </properties>
+    </rule>
+
+    <!-- Exclude migrations from some strict rules -->
+    <rule ref="PSR1.Classes.ClassDeclaration.MissingNamespace">
+        <exclude-pattern>*/migrations/*</exclude-pattern>
+    </rule>
+
+    <!-- Allow snake_case for migration class names -->
+    <rule ref="Squiz.Classes.ValidClassName.NotCamelCaps">
+        <exclude-pattern>*/migrations/*</exclude-pattern>
+    </rule>
+</ruleset>

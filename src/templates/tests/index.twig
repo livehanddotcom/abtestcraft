@@ -1,0 +1,189 @@
+{% extends "_layouts/cp" %}
+
+{% set title = "Split Tests" %}
+{% set selectedSubnavItem = "tests" %}
+
+{% block actionButton %}
+    {% if canCreateTests %}
+        <a href="{{ url('abtestcraft/tests/new') }}" class="btn submit">New Test</a>
+    {% else %}
+        <span class="btn submit disabled" title="{{ 'License required to create new tests'|t('abtestcraft') }}" style="opacity: 0.5; cursor: not-allowed;">New Test</span>
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+    {# License Warning Banner #}
+    {% if licenseInfo is defined and licenseInfo.message %}
+    <div style="margin-bottom: 24px; padding: 16px; border-radius: 6px;
+        {% if licenseInfo.color == 'orange' %}background: #fff3cd; border: 1px solid #ffeeba; color: #856404;
+        {% elseif licenseInfo.color == 'red' %}background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24;
+        {% endif %}">
+        <strong>{{ licenseInfo.label }}</strong>: {{ licenseInfo.message }}
+        {% if licenseInfo.color == 'orange' %}
+            <a href="{{ url('plugin-store/abtestcraft') }}" class="go" style="margin-left: 8px;">{{ 'Purchase License'|t('abtestcraft') }}</a>
+        {% elseif licenseInfo.color == 'red' %}
+            <a href="https://console.craftcms.com" target="_blank" rel="noopener" class="go" style="margin-left: 8px;">{{ 'Manage License'|t('abtestcraft') }}</a>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {# Tab Navigation #}
+    <div class="pane" style="margin-bottom: 24px; padding: 0;">
+        <nav style="display: flex; border-bottom: none;">
+            <a href="{{ url('abtestcraft/tests', { status: 'active' }) }}"
+               class="tab{% if statusFilter == 'active' %} sel{% endif %}"
+               style="padding: 12px 20px; text-decoration: none; color: {% if statusFilter == 'active' %}#0d78f2{% else %}#3f4d5a{% endif %}; border-bottom: 2px solid {% if statusFilter == 'active' %}#0d78f2{% else %}transparent{% endif %}; font-weight: {% if statusFilter == 'active' %}600{% else %}normal{% endif %};">
+                Active
+                <span style="margin-left: 6px; padding: 2px 8px; background: {% if statusFilter == 'active' %}#e3f2fd{% else %}#e9ecef{% endif %}; border-radius: 10px; font-size: 12px;">{{ counts.active }}</span>
+            </a>
+            <a href="{{ url('abtestcraft/tests', { status: 'completed' }) }}"
+               class="tab{% if statusFilter == 'completed' %} sel{% endif %}"
+               style="padding: 12px 20px; text-decoration: none; color: {% if statusFilter == 'completed' %}#0d78f2{% else %}#3f4d5a{% endif %}; border-bottom: 2px solid {% if statusFilter == 'completed' %}#0d78f2{% else %}transparent{% endif %}; font-weight: {% if statusFilter == 'completed' %}600{% else %}normal{% endif %};">
+                Completed
+                <span style="margin-left: 6px; padding: 2px 8px; background: {% if statusFilter == 'completed' %}#e3f2fd{% else %}#e9ecef{% endif %}; border-radius: 10px; font-size: 12px;">{{ counts.completed }}</span>
+            </a>
+            <a href="{{ url('abtestcraft/tests', { status: 'all' }) }}"
+               class="tab{% if statusFilter == 'all' %} sel{% endif %}"
+               style="padding: 12px 20px; text-decoration: none; color: {% if statusFilter == 'all' %}#0d78f2{% else %}#3f4d5a{% endif %}; border-bottom: 2px solid {% if statusFilter == 'all' %}#0d78f2{% else %}transparent{% endif %}; font-weight: {% if statusFilter == 'all' %}600{% else %}normal{% endif %};">
+                All
+                <span style="margin-left: 6px; padding: 2px 8px; background: {% if statusFilter == 'all' %}#e3f2fd{% else %}#e9ecef{% endif %}; border-radius: 10px; font-size: 12px;">{{ counts.all }}</span>
+            </a>
+        </nav>
+    </div>
+
+    {% if tests|length %}
+        <table class="data fullwidth">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Status</th>
+                    <th>Control</th>
+                    <th>Variant</th>
+                    <th>Lift</th>
+                    <th>Progress</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in tests %}
+                    {% set test = item.test %}
+                    {% set stats = item.stats %}
+                    {% set timeEstimate = item.timeEstimate %}
+                    <tr>
+                        <td>
+                            <a href="{{ url('abtestcraft/tests/' ~ test.id ~ '/results') }}">
+                                <strong>{{ test.name }}</strong>
+                            </a>
+                            <div class="light">{{ test.handle }}</div>
+                        </td>
+                        <td>
+                            {% switch test.status %}
+                                {% case 'draft' %}
+                                    <span class="status"></span> Draft
+                                {% case 'running' %}
+                                    <span class="status live"></span> Running
+                                {% case 'paused' %}
+                                    <span class="status"></span> Paused
+                                {% case 'completed' %}
+                                    <span class="status off"></span> Completed
+                                    {% if test.winnerVariant %}
+                                        <div class="light">{{ test.winnerVariant|capitalize }} won</div>
+                                    {% endif %}
+                            {% endswitch %}
+                        </td>
+                        <td>
+                            {% if test.status == 'draft' %}
+                                <span class="light">—</span>
+                            {% else %}
+                                {{ stats.conversionRates.control }}%
+                                <div class="light">{{ stats.conversions.control }}/{{ stats.impressions.control }}</div>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if test.status == 'draft' %}
+                                <span class="light">—</span>
+                            {% else %}
+                                {{ stats.conversionRates.variant }}%
+                                <div class="light">{{ stats.conversions.variant }}/{{ stats.impressions.variant }}</div>
+                            {% endif %}
+                        </td>
+                        {# Lift column - contextual display #}
+                        <td>
+                            {% if test.status == 'completed' %}
+                                <span style="color: {% if stats.improvement > 0 %}#27ae60{% elseif stats.improvement < 0 %}#e74c3c{% else %}#3f4d5a{% endif %}; font-weight: 600;">
+                                    {% if stats.improvement > 0 %}+{% endif %}{{ stats.improvement }}%
+                                </span>
+                            {% elseif test.status == 'running' and (stats.impressions.control + stats.impressions.variant) > 100 %}
+                                <span style="color: #8f98a3;">
+                                    ~{% if stats.improvement > 0 %}+{% endif %}{{ stats.improvement }}%
+                                </span>
+                                <div class="light" style="font-size: 10px;">preliminary</div>
+                            {% else %}
+                                <span class="light">—</span>
+                            {% endif %}
+                        </td>
+                        {# Progress column - contextual display #}
+                        <td>
+                            {% if test.status == 'running' %}
+                                {# Progress bar #}
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <div style="width: 50px; height: 6px; background: #e2e8f0; border-radius: 3px; overflow: hidden;">
+                                        <div style="width: {{ min(100, stats.progressPercent|default(0)) }}%; height: 100%; background: {% if stats.isSignificant %}#27ae60{% else %}#6366f1{% endif %}; border-radius: 3px;"></div>
+                                    </div>
+                                    <span style="font-size: 11px; color: #64748b;">{{ stats.progressPercent|default(0) }}%</span>
+                                </div>
+                                <div class="light" style="font-size: 10px; margin-top: 2px;">
+                                    {% if stats.isSignificant %}
+                                        Ready to call
+                                    {% elseif timeEstimate and not timeEstimate.reached %}
+                                        ~{{ timeEstimate.daysRemaining }}d left
+                                    {% endif %}
+                                </div>
+                            {% elseif test.status == 'completed' %}
+                                {% set duration = test.getDurationDays() %}
+                                {% if duration %}
+                                    <div>{{ duration }} day{% if duration != 1 %}s{% endif %}</div>
+                                {% endif %}
+                                <div class="light" style="font-size: 10px;">{{ (stats.confidence * 100)|number_format(1) }}% conf.</div>
+                            {% else %}
+                                <span class="light">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="thin" style="white-space: nowrap;">
+                            {% if test.status != 'draft' %}
+                                <a href="{{ url('abtestcraft/tests/' ~ test.id ~ '/results') }}" class="btn small">Results</a>
+                            {% endif %}
+                            <a href="{{ url('abtestcraft/tests/' ~ test.id) }}" class="btn small{% if test.status == 'draft' %} submit{% endif %}">Settings</a>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div class="zilch">
+            {% if statusFilter == 'active' %}
+                <p>No active tests.</p>
+                {% if counts.all == 0 %}
+                    {% if canCreateTests %}
+                        <a href="{{ url('abtestcraft/tests/new') }}" class="btn submit">Create your first test</a>
+                    {% else %}
+                        <p style="margin-top: 12px; color: #856404;">
+                            <a href="{{ url('plugin-store/abtestcraft') }}" class="go">{{ 'Purchase a license'|t('abtestcraft') }}</a> {{ 'to create tests.'|t('abtestcraft') }}
+                        </p>
+                    {% endif %}
+                {% endif %}
+            {% elseif statusFilter == 'completed' %}
+                <p>No completed tests yet.</p>
+            {% else %}
+                <p>No split tests yet.</p>
+                {% if canCreateTests %}
+                    <a href="{{ url('abtestcraft/tests/new') }}" class="btn submit">Create your first test</a>
+                {% else %}
+                    <p style="margin-top: 12px; color: #856404;">
+                        <a href="{{ url('plugin-store/abtestcraft') }}" class="go">{{ 'Purchase a license'|t('abtestcraft') }}</a> {{ 'to create tests.'|t('abtestcraft') }}
+                    </p>
+                {% endif %}
+            {% endif %}
+        </div>
+    {% endif %}
+{% endblock %}

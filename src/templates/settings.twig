@@ -1,0 +1,404 @@
+{# License Status Banner #}
+{% if licenseInfo is defined %}
+<div class="license-status" style="margin-bottom: 24px; padding: 16px; border-radius: 6px;
+    {% if licenseInfo.color == 'green' %}background: #d4edda; border: 1px solid #c3e6cb; color: #155724;
+    {% elseif licenseInfo.color == 'orange' %}background: #fff3cd; border: 1px solid #ffeeba; color: #856404;
+    {% elseif licenseInfo.color == 'red' %}background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24;
+    {% else %}background: #e2e3e5; border: 1px solid #d6d8db; color: #383d41;{% endif %}">
+    <div style="display: flex; align-items: center; gap: 8px;">
+        <span class="status {{ licenseInfo.color == 'green' ? 'on' : (licenseInfo.color == 'orange' ? 'pending' : (licenseInfo.color == 'red' ? 'off' : '')) }}"></span>
+        <strong>{{ "License Status"|t('abtestcraft') }}:</strong> {{ licenseInfo.label }}
+    </div>
+    {% if licenseInfo.message %}
+        <p style="margin: 8px 0 0 0; font-size: 13px;">{{ licenseInfo.message }}</p>
+    {% endif %}
+    {% if licenseInfo.color == 'orange' %}
+        <p style="margin: 8px 0 0 0;"><a href="{{ url('plugin-store/abtestcraft') }}" class="go">{{ "Purchase License"|t('abtestcraft') }}</a></p>
+    {% elseif licenseInfo.color == 'red' %}
+        <p style="margin: 8px 0 0 0;"><a href="https://console.craftcms.com" target="_blank" rel="noopener" class="go">{{ "Manage License"|t('abtestcraft') }}</a></p>
+    {% endif %}
+</div>
+{% endif %}
+
+{% import "_includes/forms" as forms %}
+
+{{ forms.textField({
+    label: "Cookie Duration (Days)"|t('abtestcraft'),
+    instructions: "How long visitor assignments persist."|t('abtestcraft'),
+    id: 'cookieDuration',
+    name: 'cookieDuration',
+    type: 'number',
+    min: 1,
+    max: 365,
+    value: settings.cookieDuration,
+    errors: settings.getErrors('cookieDuration'),
+}) }}
+
+<hr>
+
+<h2>Tracking Options</h2>
+
+{{ forms.lightswitchField({
+    label: "Track Phone Clicks"|t('abtestcraft'),
+    instructions: "Automatically track clicks on tel: links."|t('abtestcraft'),
+    id: 'trackPhoneClicks',
+    name: 'trackPhoneClicks',
+    on: settings.trackPhoneClicks,
+}) }}
+
+{{ forms.lightswitchField({
+    label: "Track Email Clicks"|t('abtestcraft'),
+    instructions: "Automatically track clicks on mailto: links."|t('abtestcraft'),
+    id: 'trackEmailClicks',
+    name: 'trackEmailClicks',
+    on: settings.trackEmailClicks,
+}) }}
+
+{{ forms.lightswitchField({
+    label: "Track Form Submissions"|t('abtestcraft'),
+    instructions: "Automatically track form submissions."|t('abtestcraft'),
+    id: 'trackFormSubmissions',
+    name: 'trackFormSubmissions',
+    on: settings.trackFormSubmissions,
+}) }}
+
+{{ forms.lightswitchField({
+    label: "Track File Downloads"|t('abtestcraft'),
+    instructions: "Automatically track downloads (PDF, DOC, ZIP, etc)."|t('abtestcraft'),
+    id: 'trackFileDownloads',
+    name: 'trackFileDownloads',
+    on: settings.trackFileDownloads,
+}) }}
+
+<hr>
+
+<h2>Rate Limiting</h2>
+
+{{ forms.textField({
+    label: "Conversion Rate Limit"|t('abtestcraft'),
+    instructions: "Maximum conversions per minute per IP address per test. Helps prevent abuse."|t('abtestcraft'),
+    id: 'conversionRateLimit',
+    name: 'conversionRateLimit',
+    type: 'number',
+    min: 1,
+    max: 100,
+    value: settings.conversionRateLimit,
+    errors: settings.getErrors('conversionRateLimit'),
+}) }}
+
+<hr>
+
+<h2>Conversion Counting</h2>
+
+{{ forms.selectField({
+    label: "Conversion Counting Mode"|t('abtestcraft'),
+    instructions: "How to count multiple conversions from the same visitor."|t('abtestcraft'),
+    id: 'conversionCountingMode',
+    name: 'conversionCountingMode',
+    options: [
+        { label: 'One per goal type (recommended)', value: 'per_goal_type' },
+        { label: 'First conversion only (any goal)', value: 'first_only' },
+        { label: 'All conversions (unlimited)', value: 'unlimited' },
+    ],
+    value: settings.conversionCountingMode,
+    errors: settings.getErrors('conversionCountingMode'),
+}) }}
+
+<div class="field">
+    <div class="instructions" style="margin-top: -16px;">
+        <p style="color: #8f98a3; font-size: 12px;">
+            <strong>One per goal type:</strong> A visitor can convert once per goal type (e.g., once for form, once for phone). Most accurate for multi-goal tests.<br>
+            <strong>First conversion only:</strong> Only the first conversion counts, regardless of goal type. Useful when any goal is equally valuable.<br>
+            <strong>All conversions:</strong> Every conversion is counted. May inflate conversion numbers but shows all user actions.
+        </p>
+    </div>
+</div>
+
+<hr>
+
+<h2>Notifications</h2>
+
+{{ forms.lightswitchField({
+    label: "Send Significance Email"|t('abtestcraft'),
+    instructions: "Send an email when a test reaches statistical significance."|t('abtestcraft'),
+    id: 'sendSignificanceEmail',
+    name: 'sendSignificanceEmail',
+    on: settings.sendSignificanceEmail,
+}) }}
+
+{{ forms.textField({
+    label: "Notification Emails"|t('abtestcraft'),
+    instructions: "Comma-separated list of email addresses to notify."|t('abtestcraft'),
+    id: 'notificationEmails',
+    name: 'notificationEmails',
+    value: settings.notificationEmails,
+    errors: settings.getErrors('notificationEmails'),
+}) }}
+
+{{ forms.textField({
+    label: "Significance Threshold"|t('abtestcraft'),
+    instructions: "Confidence level required to consider a test significant (0.8-0.99). Default is 0.95 (95%)."|t('abtestcraft'),
+    id: 'significanceThreshold',
+    name: 'significanceThreshold',
+    type: 'number',
+    step: '0.01',
+    min: 0.8,
+    max: 0.99,
+    value: settings.significanceThreshold,
+    errors: settings.getErrors('significanceThreshold'),
+}) }}
+
+<div class="field">
+    <div class="heading">
+        <label for="minimumDetectableEffect">
+            {{ "Minimum Detectable Effect"|t('abtestcraft') }}
+        </label>
+        <button type="button" class="btn small" id="mde-help-btn" style="margin-left: 8px; padding: 2px 8px; font-size: 12px;">
+            Help
+        </button>
+    </div>
+    <div class="instructions">
+        <p>{{ "The smallest relative improvement you want to reliably detect. Lower values require more traffic."|t('abtestcraft') }}</p>
+    </div>
+    <div class="input">
+        {{ forms.select({
+            id: 'minimumDetectableEffect',
+            name: 'minimumDetectableEffect',
+            options: [
+                { label: '5% - Detect small changes', value: '0.05' },
+                { label: '10% - Balanced (Recommended)', value: '0.1' },
+                { label: '15% - Moderate changes', value: '0.15' },
+                { label: '20% - Large changes only', value: '0.2' },
+                { label: '25% - Quick validation', value: '0.25' },
+            ],
+            value: settings.minimumDetectableEffect,
+        }) }}
+    </div>
+</div>
+
+<div class="field">
+    <div class="instructions" style="margin-top: -16px;">
+        <p style="color: #8f98a3; font-size: 12px;">
+            <strong>5%:</strong> High-traffic sites optimizing mature pages. Catches small wins but requires 16x more traffic.<br>
+            <strong>10%:</strong> Most websites. Good balance of sensitivity and test duration.<br>
+            <strong>20-25%:</strong> Low-traffic sites or quick directional tests. Only detects large improvements.
+        </p>
+    </div>
+</div>
+
+<hr>
+
+<h2>Analytics Integration</h2>
+
+<div class="field">
+    <div class="heading">
+        <label for="enableDataLayer">
+            {{ "Enable dataLayer Integration"|t('abtestcraft') }}
+        </label>
+        <button type="button" class="btn small" id="datalayer-help-btn" style="margin-left: 8px; padding: 2px 8px; font-size: 12px;">
+            Help
+        </button>
+    </div>
+    <div class="instructions">
+        <p>{{ "Push split test events to window.dataLayer for GA4/GTM."|t('abtestcraft') }}</p>
+    </div>
+    <div class="input">
+        {{ forms.lightswitch({
+            id: 'enableDataLayer',
+            name: 'enableDataLayer',
+            on: settings.enableDataLayer,
+        }) }}
+    </div>
+</div>
+
+{# Help Modal for Minimum Detectable Effect #}
+<div id="mde-help-modal" class="modal" style="display: none; width: 650px;">
+    <div class="body" style="padding: 24px; max-height: 60vh; overflow-y: auto;">
+        <h2 style="margin-top: 0;">Minimum Detectable Effect (MDE)</h2>
+        <p>MDE is the smallest improvement you want to reliably detect. A 10% MDE means if your control converts at 5%, you can detect a variant converting at 5.5% or higher.</p>
+
+        <h3 style="margin-top: 20px;">Choosing the Right MDE</h3>
+        <table class="data fullwidth" style="margin-bottom: 20px;">
+            <thead>
+                <tr>
+                    <th>MDE</th>
+                    <th>Best For</th>
+                    <th>Sample Size</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>5%</strong></td>
+                    <td>High-traffic sites, checkout optimization, mature pages</td>
+                    <td>16x baseline</td>
+                </tr>
+                <tr>
+                    <td><strong>10%</strong></td>
+                    <td>Most websites, general A/B testing</td>
+                    <td>4x baseline</td>
+                </tr>
+                <tr>
+                    <td><strong>15%</strong></td>
+                    <td>Medium traffic, faster results needed</td>
+                    <td>~2x baseline</td>
+                </tr>
+                <tr>
+                    <td><strong>20%</strong></td>
+                    <td>Low traffic, major redesigns</td>
+                    <td>1x baseline</td>
+                </tr>
+                <tr>
+                    <td><strong>25%</strong></td>
+                    <td>Very low traffic, quick directional validation</td>
+                    <td>~0.6x baseline</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>What happens if I change this setting?</h3>
+        <p style="margin-bottom: 12px;">This is a global setting that affects all tests. Changing it:</p>
+        <ul style="margin-bottom: 20px;">
+            <li><strong>Does NOT invalidate running tests</strong> &mdash; your collected data remains valid</li>
+            <li><strong>Updates progress indicators</strong> &mdash; the "% complete" and "days remaining" will recalculate</li>
+            <li><strong>Affects sample size requirements</strong> &mdash; lower MDE means tests need more data</li>
+        </ul>
+
+        <p style="margin-bottom: 12px;">If you lower MDE mid-test (e.g., 20% &rarr; 10%), tests that looked nearly complete may now show they need more data. If you raise it (e.g., 10% &rarr; 20%), tests may reach their sample size requirement sooner.</p>
+
+        <div style="padding: 12px; background: #e8f4fd; border-radius: 4px; color: #0c5460;">
+            <strong>Best practice:</strong> Set your MDE before starting tests and avoid changing it mid-experiment. If you do change it, understand that you're changing the sensitivity of detection, not the validity of the data.
+        </div>
+    </div>
+    <div class="footer" style="padding: 12px 24px; border-top: 1px solid #e3e5e8;">
+        <button type="button" class="btn submit" id="mde-help-close">Close</button>
+    </div>
+</div>
+
+{# Help Modal for GA4/GTM Integration #}
+<div id="datalayer-help-modal" class="modal" style="display: none; width: 650px;">
+    <div class="body" style="padding: 24px; max-height: 60vh; overflow-y: auto;">
+        <h2 style="margin-top: 0;">GA4 / Google Tag Manager Integration</h2>
+        <p>When enabled, the Split Test plugin pushes events to <code>window.dataLayer</code> which can be used by Google Analytics 4 (GA4) via Google Tag Manager (GTM).</p>
+
+        <h3 style="margin-top: 20px;">Events Pushed</h3>
+        <table class="data fullwidth" style="margin-bottom: 20px;">
+            <thead>
+                <tr>
+                    <th>Event Name</th>
+                    <th>When Fired</th>
+                    <th>Parameters</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>split_test_impression</code></td>
+                    <td>When a visitor sees a test variant</td>
+                    <td>
+                        <code>split_test_name</code><br>
+                        <code>split_test_variant</code>
+                    </td>
+                </tr>
+                <tr>
+                    <td><code>split_test_conversion</code></td>
+                    <td>When a conversion is recorded</td>
+                    <td>
+                        <code>split_test_name</code><br>
+                        <code>split_test_variant</code><br>
+                        <code>conversion_type</code>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>Setting Up in Google Tag Manager</h3>
+        <ol style="margin-bottom: 20px;">
+            <li><strong>Create a Trigger:</strong> Go to Triggers → New → Custom Event → Event name: <code>split_test_conversion</code></li>
+            <li><strong>Create Variables:</strong> Go to Variables → New → Data Layer Variable for each parameter:
+                <ul style="margin-top: 8px;">
+                    <li>Variable Name: <code>split_test_name</code></li>
+                    <li>Variable Name: <code>split_test_variant</code></li>
+                    <li>Variable Name: <code>conversion_type</code></li>
+                </ul>
+            </li>
+            <li><strong>Create a GA4 Event Tag:</strong> Go to Tags → New → GA4 Event
+                <ul style="margin-top: 8px;">
+                    <li>Event Name: <code>split_test_conversion</code></li>
+                    <li>Add event parameters using your Data Layer variables</li>
+                    <li>Trigger: Your custom event trigger</li>
+                </ul>
+            </li>
+        </ol>
+
+        <h3>Using in GA4 Reports</h3>
+        <p style="margin-bottom: 12px;">To analyze your split test results in GA4:</p>
+        <ol style="margin-bottom: 20px;">
+            <li><strong>Create Custom Dimensions:</strong> In GA4 Admin → Custom definitions → Create custom dimensions for <code>split_test_name</code>, <code>split_test_variant</code>, and <code>conversion_type</code></li>
+            <li><strong>Build Reports:</strong> Use Explore to create funnels or compare conversion rates between control and variant</li>
+        </ol>
+
+        <div style="padding: 12px; background: #e8f4fd; border-radius: 4px; color: #0c5460;">
+            <strong>Tip:</strong> The <code>split_test_name</code> parameter contains your test's handle, making it easy to filter reports by specific tests.
+        </div>
+    </div>
+    <div class="footer" style="padding: 12px 24px; border-top: 1px solid #e3e5e8;">
+        <button type="button" class="btn submit" id="datalayer-help-close">Close</button>
+    </div>
+</div>
+
+{% js %}
+Garnish.$doc.ready(function() {
+    // IDs are namespaced with 'settings-' prefix by Craft's namespaceInputs()
+
+    // MDE Help Modal
+    var $mdeHelpBtn = $('#settings-mde-help-btn');
+    var $mdeModal = $('#settings-mde-help-modal');
+    var $mdeCloseBtn = $('#settings-mde-help-close');
+    var mdeModal = null;
+
+    $mdeHelpBtn.on('click', function(e) {
+        e.preventDefault();
+        if (!mdeModal) {
+            mdeModal = new Garnish.Modal($mdeModal, {
+                autoShow: false,
+                closeOtherModals: true,
+                hideOnEsc: true,
+                hideOnShadeClick: true
+            });
+        }
+        mdeModal.show();
+    });
+
+    $mdeCloseBtn.on('click', function(e) {
+        e.preventDefault();
+        if (mdeModal) {
+            mdeModal.hide();
+        }
+    });
+
+    // DataLayer Help Modal
+    var $helpBtn = $('#settings-datalayer-help-btn');
+    var $modal = $('#settings-datalayer-help-modal');
+    var $closeBtn = $('#settings-datalayer-help-close');
+    var modal = null;
+
+    $helpBtn.on('click', function(e) {
+        e.preventDefault();
+        if (!modal) {
+            modal = new Garnish.Modal($modal, {
+                autoShow: false,
+                closeOtherModals: true,
+                hideOnEsc: true,
+                hideOnShadeClick: true
+            });
+        }
+        modal.show();
+    });
+
+    $closeBtn.on('click', function(e) {
+        e.preventDefault();
+        if (modal) {
+            modal.hide();
+        }
+    });
+});
+{% endjs %}

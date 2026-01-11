@@ -1,0 +1,74 @@
+# Codeception Configuration for ABTestCraft Plugin
+#
+# IMPORTANT: Run unit and integration tests separately (different bootstrap requirements):
+#
+# Run unit tests: ./vendor/bin/codecept run unit
+# Run integration tests: ./vendor/bin/codecept run integration
+# Run single test: ./vendor/bin/codecept run unit StatsServiceTest
+# Run with coverage: ./vendor/bin/codecept run unit --coverage
+#
+# NOTE: Do not use "./vendor/bin/codecept run" without a suite name.
+# Unit tests use a minimal Yii app, integration tests use full Craft bootstrap.
+
+namespace: kyleulch\abtestcraft\tests
+support_namespace: Support
+paths:
+  tests: tests
+  output: tests/_output
+  data: tests/_data
+  support: tests/_support
+  envs: tests/_envs
+
+actor_suffix: Tester
+
+bootstrap: _bootstrap.php
+
+params:
+  - tests/.env
+
+# Global Craft module configuration (used by integration suite)
+modules:
+  config:
+    \craft\test\Craft:
+      configFile: 'tests/_craft/config/test.php'
+      entryUrl: 'http://europa-museum.ddev.site/index.php'
+      projectConfig: {}
+      migrations: []
+      plugins: []
+      cleanup: false
+      transaction: false
+      dbSetup: {clean: false, setupCraft: false, applyMigrations: false}
+
+settings:
+  shuffle: true
+  strict_coverage: false
+  log_incomplete_skipped: false
+
+coverage:
+  enabled: true
+  include:
+    - src/*
+
+extensions:
+  enabled:
+    - Codeception\Extension\RunFailed
+
+suites:
+  # Unit tests - fast, isolated, no database
+  unit:
+    path: unit
+    actor: UnitTester
+    modules:
+      enabled:
+        - Asserts
+
+  # Integration tests - full Craft application with database
+  integration:
+    path: integration
+    actor: IntegrationTester
+    env:
+      INTEGRATION_TEST: 'true'
+    modules:
+      enabled:
+        - Asserts
+        - \craft\test\Craft

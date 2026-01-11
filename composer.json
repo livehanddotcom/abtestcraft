@@ -1,0 +1,58 @@
+{
+    "name": "livehand/abtestcraft",
+    "description": "A/B testing for Craft CMS - test page variations and track conversions with statistical significance",
+    "version": "1.0.0",
+    "type": "craft-plugin",
+    "license": "proprietary",
+    "keywords": [
+        "craftcms",
+        "craft-plugin",
+        "a/b testing",
+        "ab testing",
+        "conversion tracking",
+        "optimization",
+        "analytics"
+    ],
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "require": {
+        "php": ">=8.2",
+        "craftcms/cms": "^5.0.0"
+    },
+    "require-dev": {
+        "codeception/codeception": "^5.0",
+        "squizlabs/php_codesniffer": "^3.7",
+        "codeception/module-asserts": "^3.3",
+        "vlucas/phpdotenv": "^5.6",
+        "codeception/module-yii2": "^1.1",
+        "phpstan/phpstan": "^2.1",
+        "phpstan/extension-installer": "^1.4"
+    },
+    "autoload": {
+        "psr-4": {
+            "livehand\\abtestcraft\\": "src/"
+        }
+    },
+    "support": {
+        "email": "info@abtestcraft.com",
+        "docs": "https://abtestcraft.com/docs",
+        "issues": "https://github.com/livehanddotcom/abtestcraft/issues"
+    },
+    "extra": {
+        "handle": "abtestcraft",
+        "name": "ABTestCraft",
+        "developer": "Livehand Inc.",
+        "developerEmail": "info@abtestcraft.com",
+        "developerUrl": "https://abtestcraft.com",
+        "documentationUrl": "https://abtestcraft.com/docs",
+        "changelogUrl": "https://github.com/livehanddotcom/abtestcraft/blob/main/CHANGELOG.md",
+        "class": "livehand\\abtestcraft\\ABTestCraft"
+    },
+    "config": {
+        "allow-plugins": {
+            "yiisoft/yii2-composer": true,
+            "craftcms/plugin-installer": true,
+            "phpstan/extension-installer": true
+        }
+    }
+}
