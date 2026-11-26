@@ -146,7 +146,7 @@ class ABTestCraft extends BasePlugin
 
     protected function settingsHtml(): ?string
     {
-        return Craft::$app->view->renderTemplate('abtestcraft/settings', [
+        return Craft::$app->view->renderTemplate('abtestcraft/_settings', [
             'plugin' => $this,
             'settings' => $this->getSettings(),
             'licenseInfo' => $this->license->getStatusInfo(),

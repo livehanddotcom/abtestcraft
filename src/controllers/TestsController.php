@@ -63,7 +63,7 @@ class TestsController extends Controller
             ];
         }
 
-        return $this->renderTemplate('abtestcraft/tests/index', [
+        return $this->renderTemplate('abtestcraft/tests/_index', [
             'site' => $site,
             'tests' => $testsWithStats,
             'statusFilter' => $statusFilter,
@@ -174,7 +174,7 @@ class TestsController extends Controller
         $stats = ABTestCraft::getInstance()->stats->getTestStats($test);
         $timeEstimate = $stats['timeEstimate'];
 
-        return $this->renderTemplate('abtestcraft/tests/results', [
+        return $this->renderTemplate('abtestcraft/tests/_results', [
             'test' => $test,
             'stats' => $stats,
             'timeEstimate' => $timeEstimate,

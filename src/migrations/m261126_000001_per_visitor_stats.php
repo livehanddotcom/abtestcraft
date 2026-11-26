@@ -158,7 +158,7 @@ class m261126_000001_per_visitor_stats extends Migration
                     StringHelper::UUID(),
                 ], $newSlots);
                 $columns = ['testId', 'visitorId', 'goalType', 'dateCreated', 'dateUpdated', 'uid'];
-                $this->batchInsert(self::GOALS, $columns, $insert, false);
+                $this->batchInsert(self::GOALS, $columns, $insert);
             }
         }
 
