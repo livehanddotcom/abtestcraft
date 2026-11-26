@@ -208,15 +208,16 @@ class NotificationService extends Component
      * Send the weekly summary if it's switched on and due (Monday mornings,
      * site time, once that day)
      *
+     * @param DateTime|null $now The current time (for tests)
      * @return bool Whether it was sent
      */
-    public function sendWeeklySummaryIfDue(): bool
+    public function sendWeeklySummaryIfDue(?DateTime $now = null): bool
     {
         if (!ABTestCraft::getInstance()->getSettings()->sendWeeklySummary || !$this->hasRecipients()) {
             return false;
         }
 
-        $now = new DateTime('now', new DateTimeZone(Craft::$app->getTimeZone()));
+        $now = (clone ($now ?? new DateTime()))->setTimezone(new DateTimeZone(Craft::$app->getTimeZone()));
         $today = $now->format('Y-m-d');
         if ($now->format('N') !== '1' || (int) $now->format('G') < self::WEEKLY_SUMMARY_HOUR) {
             return false;
@@ -343,8 +344,8 @@ class NotificationService extends Component
         }
 
         $line .= "\n  Control {$stats['conversionRates']['control']}% of {$stats['visitors']['control']} visitors, "
-            . "variant {$stats['conversionRates']['variant']}% of {$stats['visitors']['variant']} "
-            . "({$stats['primaryGoalLabel']})";
+            . "variant {$stats['conversionRates']['variant']}% of {$stats['visitors']['variant']}, "
+            . 'on ' . strtolower($stats['primaryGoalLabel']);
 
         if ($stats['guardrail']['status'] === 'triggered') {
             $line .= "\n  The safety guardrail paused this test.";

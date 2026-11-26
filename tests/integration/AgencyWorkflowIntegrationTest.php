@@ -369,6 +369,79 @@ class AgencyWorkflowIntegrationTest extends Unit
         $this->assertStringContainsString('Summary ended test: Variant won', $summary);
     }
 
+    /**
+     * Monday mornings (site time), once that day, only when switched on and
+     * an address is set
+     */
+    public function testWeeklySummaryTiming(): void
+    {
+        $settings = ABTestCraft::getInstance()->getSettings();
+        $notifications = ABTestCraft::getInstance()->notifications;
+        $state = ABTestCraft::getInstance()->state;
+        $zone = new \DateTimeZone(Craft::$app->getTimeZone());
+        $originalWeekly = $settings->sendWeeklySummary;
+        $originalState = $state->get('weeklySummarySentOn');
+
+        $this->createTest(['name' => 'Weekly timing test']);
+        $monday9 = new DateTime('2030-01-07 09:00', $zone); // a Monday
+        $monday7 = new DateTime('2030-01-07 07:59', $zone);
+        $tuesday = new DateTime('2030-01-08 09:00', $zone);
+
+        try {
+            $settings->sendWeeklySummary = false;
+            $settings->notificationEmails = 'qa@example.com';
+            $state->set('weeklySummarySentOn', '2000-01-01');
+            $this->assertFalse($notifications->sendWeeklySummaryIfDue($monday9), 'Off by default');
+
+            $settings->sendWeeklySummary = true;
+            $settings->notificationEmails = '';
+            $this->assertFalse($notifications->sendWeeklySummaryIfDue($monday9), 'No address');
+
+            $settings->notificationEmails = 'qa@example.com';
+            $this->assertFalse($notifications->sendWeeklySummaryIfDue($monday7), 'Before 8am');
+            $this->assertFalse($notifications->sendWeeklySummaryIfDue($tuesday), 'Not Monday');
+            $this->assertTrue($notifications->sendWeeklySummaryIfDue($monday9), 'Monday 9am');
+            $this->assertSame('2030-01-07', $state->get('weeklySummarySentOn'));
+            $this->assertFalse($notifications->sendWeeklySummaryIfDue($monday9), 'Once that day');
+        } finally {
+            $settings->sendWeeklySummary = $originalWeekly;
+            $state->set('weeklySummarySentOn', $originalState ?? '');
+        }
+    }
+
+    /**
+     * Child pages of a page showing a winner find that test
+     */
+    public function testChildPagesOfAServedWinner(): void
+    {
+        $test = $this->createTest(['status' => Test::STATUS_COMPLETED, 'winnerVariant' => Test::VARIANT_VARIANT, 'serveWinner' => true]);
+        $childId = (int) (new Query())->select(['id'])->from('{{%entries}}')->orderBy(['id' => SORT_ASC])->offset(2)->limit(1)->scalar();
+        Craft::$app->getDb()->createCommand()->insert('{{%abtestcraft_test_descendants}}', [
+            'testId' => $test->id,
+            'controlEntryId' => $test->controlEntryId,
+            'descendantEntryId' => $childId,
+            'variantAncestorId' => $test->variantEntryId,
+            'depth' => 1,
+            'siteId' => $test->siteId,
+            'dateCreated' => Db::prepareDateForDb(new DateTime()),
+            'dateUpdated' => Db::prepareDateForDb(new DateTime()),
+            'uid' => StringHelper::UUID(),
+        ])->execute();
+
+        $cascade = ABTestCraft::getInstance()->cascade;
+        try {
+            $this->assertNull($cascade->getCascadeInfo($childId, $test->siteId), 'Not a running test');
+            $info = $cascade->getCascadeInfo($childId, $test->siteId, true);
+            $this->assertSame($test->id, $info['testId'] ?? null);
+            $this->assertSame($test->variantEntryId, $info['variantAncestorId'] ?? null);
+
+            ABTestCraft::getInstance()->tests->setServeWinner($test, false);
+            $this->assertNull($cascade->getCascadeInfo($childId, $test->siteId, true), 'Stopped showing it');
+        } finally {
+            Craft::$app->getDb()->createCommand()->delete('{{%abtestcraft_test_descendants}}', ['testId' => $test->id])->execute();
+        }
+    }
+
     // ========================================
     // Helpers
     // ========================================

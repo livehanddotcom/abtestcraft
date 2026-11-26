@@ -143,17 +143,18 @@ class PageCacheService extends Component
      * Clear and purge Blitz's whole cache when the script ABTestCraft adds to
      * every page has changed since the last check (consent mode switched on
      * or off, or its signal changed), so cached pages get the new script.
-     * The first check only records the script.
      */
     public function clearAllIfPageScriptChanged(): void
     {
         $plugin = ABTestCraft::getInstance();
-        $fingerprint = md5($plugin->consent->getConsentScript() . $plugin->pageVisits->getBeaconScript());
-        $previous = $plugin->state->get('pageScriptFingerprint');
+        $beacon = $plugin->pageVisits->getBeaconScript();
+        $fingerprint = md5($plugin->consent->getConsentScript() . $beacon);
+        // Not recorded yet: before 1.3.0 pages had no consent script
+        $previous = $plugin->state->get('pageScriptFingerprint') ?? md5($beacon);
         $plugin->state->set('pageScriptFingerprint', $fingerprint);
 
         $blitz = $this->getBlitz();
-        if ($previous === null || $previous === $fingerprint || $blitz === null) {
+        if ($previous === $fingerprint || $blitz === null) {
             return;
         }
 
