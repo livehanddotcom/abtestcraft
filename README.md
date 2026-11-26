@@ -165,7 +165,7 @@ If a scheduled test can't start (for example, its page is already in another run
 
 ## Applying the Winner
 
-When a test's variant wins, ABTestCraft can **show the variant to everyone** on the original page's URL, with no cookies or tracking. Child pages follow, the variant's own URL keeps pointing search engines at the original (canonical), and the pages can be cached normally. Choose **Variant Wins, Show It to Everyone** when ending a test, use **Show the variant to everyone** on a completed test's results page, or set the test's **When a Winner Is Found** to do it automatically. **Stop showing the variant** puts the original back at any time.
+When a test's variant wins, ABTestCraft can **show the variant to everyone** on the original page's URL, with no cookies or tracking. Child pages follow, the variant's own URL keeps pointing search engines at the original (canonical), and the pages can be cached normally. Choose **Variant Wins, Show It to Everyone** when ending a test, use **Show the variant to everyone** on a completed test's results page, or set the test's **When a Winner Is Found** to do it automatically. **Stop showing the variant** puts the original back at any time. Blitz's cache for the page is cleared (and purged, with a Blitz purger) whenever this changes. Any other CDN needs purging yourself, see [Static & Full-Page Caching](#static--full-page-caching-blitz-cdns).
 
 The original entry still supplies anything that SEO plugins build from the page's own entry, such as its title and meta description. To make the change permanent, copy the variant's content into the original entry, then stop showing the variant. Another test can't run on a page while a winner is being shown there.
 
@@ -345,6 +345,8 @@ Variant assignment happens on the server when a page renders, so a page must not
 Only the pages under test skip the cache, and only while the test is running. Every other page stays cached as usual. When the test is paused or completed, its pages are cached again on the next visit.
 
 If your CDN ignores origin `Cache-Control` headers (for example, a Cloudflare "Cache Everything" rule), add a bypass rule for the tested URLs while the test runs.
+
+If a CDN or reverse proxy caches your pages and Blitz doesn't purge it (no Blitz purger is set up for it, or you don't use Blitz), purge the page's URL from the CDN yourself when you start a test on it, and when you start or stop showing a winner. Until then, the CDN keeps serving its cached copy: a page cached before the test started gets no visitors assigned, and the original page doesn't come back after you stop showing the variant. With a Blitz purger (such as Cloudflare), ABTestCraft purges these pages automatically.
 
 Pages that were cached before you updated to 1.1.0 don't include the page-visit beacon yet. Refresh your Blitz cache (or purge your CDN) once after updating, so page-visit goals are counted on cached pages too.
 
