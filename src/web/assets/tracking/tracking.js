@@ -357,11 +357,15 @@
     }
 
     /**
-     * Handle page visit goal (on link click)
+     * Page visit goal, links to other sites only. Visits to pages on this
+     * site are counted by the page-visit beacon on every page (see
+     * PageVisitService), including after redirects, so only clicks through
+     * to an external URL matching the goal are counted here.
      */
     function handlePageLinkClick(href) {
         var pageGoal = goals.page;
         if (!pageGoal || !pageGoal.enabled) return false;
+        if (!isExternalLink(href)) return false;
 
         var goalConfig = pageGoal.config || {};
         var pageUrl = goalConfig.pageUrl;
@@ -533,18 +537,14 @@
     }
 
     /**
-     * Check if current page matches page visit goal
+     * Whether a link points to another host
      */
-    function checkPageVisitGoal() {
-        var pageGoal = goals.page;
-        if (!pageGoal || !pageGoal.enabled) return;
-
-        var goalConfig = pageGoal.config || {};
-        var pageUrl = goalConfig.pageUrl;
-        var matchType = goalConfig.matchType || 'exact';
-
-        if (urlMatchesPath(window.location.pathname, pageUrl, matchType)) {
-            sendConversion('page', pageGoal.id);
+    function isExternalLink(href) {
+        try {
+            var url = new URL(href, window.location.href);
+            return (url.protocol === 'http:' || url.protocol === 'https:') && url.host !== window.location.host;
+        } catch (e) {
+            return false;
         }
     }
 
@@ -699,9 +699,6 @@
 
         // Setup legacy Freeform listener (for 'advanced' mode)
         setupFreeformListener();
-
-        // Check if current page is a goal page
-        checkPageVisitGoal();
 
         // Push initial test data to dataLayer
         if (enableDataLayer && typeof window.dataLayer !== 'undefined') {

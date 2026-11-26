@@ -71,13 +71,12 @@ Tracks clicks on `mailto:` links.
 
 ### Form Submission
 Tracks form submissions with smart detection:
-- **Smart Mode**: Detects successful submissions of the Freeform or Formie forms you select (Freeform 5; Formie 3 and 4, with or without Formie 4's compatibility mode). Failed validation, intermediate pages of multi-page forms, and unselected or unrelated forms (search, newsletter) don't count.
-- **Advanced Mode**: Configure CSS selectors for custom forms
+- **Easy (Smart) Mode**: Counts successful submissions of the Freeform or Formie forms you select (Freeform 5; Formie 3 and 4). Submissions are counted on the server when the form plugin accepts them, so AJAX and page-reload forms both work, and a redirect to a thank-you page doesn't matter. Failed validation, intermediate pages of multi-page forms, submissions the form plugin flags as spam, and unselected forms don't count.
+  - A **selected form** counts wherever a visitor in the test submits it, on any page of the site (for example, a contact form on another page they browse to).
+  - With **no forms selected**, any Freeform or Formie form counts, but only when it's submitted on the tested page.
+- **Advanced Mode**: Configure CSS selectors for custom forms. Detected in the browser on the tested page, as before.
 
-Form goals are tracked on the tested page itself. For the most accurate results, use AJAX forms:
-- **AJAX forms** are counted when the form plugin reports success.
-- **Page-reload forms** are counted when the form plugin submits after validating in the browser (Formie) or when the success message appears after the reload (Freeform). A Formie page-reload submission that the server later rejects (for example as spam) may still be counted.
-- **Forms that redirect to another page on success** (e.g. a thank-you page that isn't under test) aren't counted, because that page has no tracking script. Use a page-visit goal pointing at the link to it, or keep the success message on the tested page.
+Spam checks that Freeform runs later in the queue (such as AI-based spam checks) can't be taken into account, because the conversion is recorded when the form is submitted.
 
 ### File Download
 Tracks downloads by file extension (PDF, DOC, XLS, ZIP, etc.).
@@ -85,7 +84,7 @@ Tracks downloads by file extension (PDF, DOC, XLS, ZIP, etc.).
 ### Page Visit
 Tracks visits to a specific URL. Match types: exact, starts with, contains.
 
-Counted when a visitor on the tested page clicks a link to that URL, or when the URL is itself a tested page (e.g. a child of the control entry). A redirect to the URL (such as after a form submission) isn't counted, because the destination page has no tracking script.
+Counted when a visitor who has seen the test reaches the page, on any page of the site, including after a redirect (such as a form's thank-you page). A small beacon script on every page reports the visit for visitors in a test (see [How page-visit goals are counted](#how-page-visit-goals-are-counted)). A click on a tested page through to a matching URL on **another** site also counts.
 
 ### Custom Event
 Track custom conversions via JavaScript:
@@ -180,7 +179,18 @@ Parameters:
 - `conversionType` (string, required): phone, email, form, download, page, or custom
 - `goalId` (int, optional): Specific goal ID
 
-No CSRF token is required, so conversions keep working on cached pages. A conversion is only recorded for a visitor who was assigned a variant (identified by their first-party cookie), and the endpoint is rate limited.
+No CSRF token is required, so conversions keep working on cached pages. A conversion is only recorded for a visitor who was assigned a variant (identified by their first-party cookie), and the endpoint is rate limited. Easy-mode form goals are counted on the server instead, so `form` reports for them are ignored.
+
+### Record Page Visit
+
+```
+POST /actions/abtestcraft/track/page
+```
+
+Parameters:
+- `url` (string, required): The page URL
+
+Sent by the page-visit beacon. Records page-visit goals for the requesting visitor's running tests and returns `{"success": true, "events": [...]}`, where `events` holds the dataLayer events to push when the dataLayer is enabled. Same CSRF, cookie and rate-limit rules as above.
 
 ## Console Commands
 
@@ -209,7 +219,11 @@ Test IDs are shown by `abtestcraft/tests/list`. Before 1.0.2 the commands were `
 1. **Visitor arrives**: Plugin checks if there's an active test for the requested URL
 2. **Assignment**: Visitor is assigned to control or variant (persisted in cookie)
 3. **Template swap**: If assigned to variant, the variant entry's template is rendered instead
-4. **Tracking**: JavaScript tracks configured goals and sends conversions to the server
+4. **Tracking**: JavaScript on the tested page tracks click goals (phone, email, downloads, custom events); Easy-mode form goals are counted on the server when the form plugin accepts a submission, and page-visit goals by a small beacon on every page, so conversions count wherever on the site the visitor completes them
+
+### How page-visit goals are counted
+
+When a visitor is assigned to a test, they also get a `_abtestcraft_on=1` cookie. It holds no data and is readable by JavaScript. Every front-end page includes a small beacon script that's identical for every visitor, so it's safe on cached pages. For visitors with that cookie, the beacon sends the page URL to `/actions/abtestcraft/track/page`, and the server records any page-visit goal it matches for the tests that visitor is in. That's one extra small request per page view, only for visitors who've been in a test. Pages are matched on their path; the query string is ignored.
 5. **Statistics**: Chi-squared test calculates statistical significance
 6. **Notification**: Email sent when test reaches significance threshold
 
@@ -227,6 +241,8 @@ Variant assignment happens on the server when a page renders, so a page must not
 Only the pages under test skip the cache, and only while the test is running. Every other page stays cached as usual. When the test is paused or completed, its pages are cached again on the next visit.
 
 If your CDN ignores origin `Cache-Control` headers (for example, a Cloudflare "Cache Everything" rule), add a bypass rule for the tested URLs while the test runs.
+
+Pages that were cached before you updated to 1.1.0 don't include the page-visit beacon yet. Refresh your Blitz cache (or purge your CDN) once after updating, so page-visit goals are counted on cached pages too.
 
 ## Data Retention & Backup
 

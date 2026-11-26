@@ -214,6 +214,35 @@ class Goal extends Model
     }
 
     /**
+     * Whether a URL matches this page-visit goal. Same rules as the tracking
+     * script's urlMatchesPath(): case-insensitive, compares paths only
+     * (scheme, host, query string and fragment are ignored).
+     */
+    public function matchesPageUrl(string $url): bool
+    {
+        $goalUrl = $this->getPageUrl();
+        if ($goalUrl === null || trim($goalUrl) === '') {
+            return false;
+        }
+
+        $normalize = static function (string $value): string {
+            $value = strtolower($value);
+            $value = explode('#', explode('?', $value, 2)[0], 2)[0];
+
+            return (string) preg_replace('#^https?://[^/]+#', '', $value);
+        };
+
+        $path = $normalize($url);
+        $goal = $normalize(trim($goalUrl));
+
+        return match ($this->getMatchType()) {
+            self::MATCH_STARTS_WITH => str_starts_with($path, $goal),
+            self::MATCH_CONTAINS => str_contains($path, $goal),
+            default => $path === $goal,
+        };
+    }
+
+    /**
      * Get custom event name (single, for backward compatibility)
      */
     public function getEventName(): ?string
