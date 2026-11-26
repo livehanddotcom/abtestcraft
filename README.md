@@ -186,23 +186,23 @@ No CSRF token is required, so conversions keep working on cached pages. A conver
 
 ```bash
 # List all tests with their ID, status, handle and name
-./craft abtestcraft/a-b-test-craft/list
+./craft abtestcraft/tests/list
 
 # Show results for a test
-./craft abtestcraft/a-b-test-craft/stats <testId>
+./craft abtestcraft/tests/stats <testId>
 
 # Clear the cached stats for a test and recalculate them (--force skips the confirmation)
-./craft abtestcraft/a-b-test-craft/recalculate-stats <testId>
+./craft abtestcraft/tests/recalculate-stats <testId>
 
 # Delete visitor assignment records older than 90 days from completed tests
 # (--days=<n> changes the age, --force skips the confirmation)
-./craft abtestcraft/a-b-test-craft/cleanup
+./craft abtestcraft/tests/cleanup
 
 # Print a test's results as CSV
-./craft abtestcraft/a-b-test-craft/export <testId>
+./craft abtestcraft/tests/export <testId>
 ```
 
-Test IDs are shown by `abtestcraft/a-b-test-craft/list`. Child-page (cascade) mappings don't need a command: they're rebuilt automatically when a test is saved and when entries under a tested page are moved or added.
+Test IDs are shown by `abtestcraft/tests/list`. Before 1.0.2 the commands were `./craft abtestcraft/a-b-test-craft/<command>`; that form still works. Child-page (cascade) mappings don't need a command: they're rebuilt automatically when a test is saved and when entries under a tested page are moved or added.
 
 ## How It Works
 
@@ -246,7 +246,7 @@ The plugin creates the following tables that should be included in your backup s
 
 ### Data Retention
 
-- **Visitor data**: Kept until you remove it. `./craft abtestcraft/a-b-test-craft/cleanup` deletes visitor assignment records from completed tests (older than 90 days by default); impressions, conversions, conversion rates and significance come from the aggregated daily statistics and don't change, but the test's unique visitor counts and confidence intervals will then only reflect the visitors that remain. Permanently deleting a test removes all of its visitor data and results.
+- **Visitor data**: Kept until you remove it. `./craft abtestcraft/tests/cleanup` deletes visitor assignment records from completed tests (older than 90 days by default); impressions, conversions, conversion rates and significance come from the aggregated daily statistics and don't change, but the test's unique visitor counts and confidence intervals will then only reflect the visitors that remain. Permanently deleting a test removes all of its visitor data and results.
 - **Statistics**: Aggregated daily, raw impressions not stored
 - **Completed tests**: Remain in database for historical reference
 - **Deleted tests**: **Delete test** (on a test's settings page) moves it to the **Trash** tab, where it stops running and its data is kept. From there you can **Restore** it (a test that was running comes back paused) or **Delete permanently**, which removes the test and all its results and can't be undone.
@@ -254,8 +254,8 @@ The plugin creates the following tables that should be included in your backup s
 ### Archiving Old Data
 
 For high-traffic sites, consider periodically:
-1. Exporting completed test results (`./craft abtestcraft/a-b-test-craft/export <testId>`) to your analytics platform or records
-2. Running `./craft abtestcraft/a-b-test-craft/cleanup` to remove old visitor records from completed tests (after exporting, since it reduces their visitor counts), or deleting tests you no longer need and then deleting them permanently from the Trash tab
+1. Exporting completed test results (`./craft abtestcraft/tests/export <testId>`) to your analytics platform or records
+2. Running `./craft abtestcraft/tests/cleanup` to remove old visitor records from completed tests (after exporting, since it reduces their visitor counts), or deleting tests you no longer need and then deleting them permanently from the Trash tab
 3. Monitoring the `abtestcraft_rate_limits` table size (auto-cleans but verify)
 
 ### Backup Recommendations

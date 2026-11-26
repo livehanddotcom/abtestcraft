@@ -12,9 +12,12 @@ use yii\console\ExitCode;
 use yii\helpers\Console;
 
 /**
- * Console commands for ABTestCraft plugin
+ * Console commands for ABTestCraft tests: ./craft abtestcraft/tests/<command>
+ *
+ * Before 1.0.2 these were only reachable as abtestcraft/a-b-test-craft/<command>;
+ * that route still works (see ABTestCraft::init()).
  */
-class ABTestCraftController extends Controller
+class TestsController extends Controller
 {
     /**
      * @var bool Whether to force the operation without confirmation
@@ -49,7 +52,7 @@ class ABTestCraftController extends Controller
     /**
      * List all A/B tests with their status
      *
-     * Usage: ./craft abtestcraft/a-b-test-craft/list
+     * Usage: ./craft abtestcraft/tests/list
      */
     public function actionList(): int
     {
@@ -87,7 +90,7 @@ class ABTestCraftController extends Controller
     /**
      * Show detailed stats for a specific test
      *
-     * Usage: ./craft abtestcraft/a-b-test-craft/stats <testId>
+     * Usage: ./craft abtestcraft/tests/stats <testId>
      *
      * @param int $testId The test ID to show stats for
      */
@@ -144,7 +147,7 @@ class ABTestCraftController extends Controller
     /**
      * Recalculate and clear cached stats for a test
      *
-     * Usage: ./craft abtestcraft/a-b-test-craft/recalculate-stats <testId>
+     * Usage: ./craft abtestcraft/tests/recalculate-stats <testId>
      *
      * @param int $testId The test ID to recalculate stats for
      */
@@ -181,7 +184,7 @@ class ABTestCraftController extends Controller
     /**
      * Clean up old visitor data for completed tests
      *
-     * Usage: ./craft abtestcraft/a-b-test-craft/cleanup --days=90
+     * Usage: ./craft abtestcraft/tests/cleanup --days=90
      *
      * @return int
      */
@@ -244,7 +247,7 @@ class ABTestCraftController extends Controller
     /**
      * Export test results to CSV
      *
-     * Usage: ./craft abtestcraft/a-b-test-craft/export <testId>  (prints CSV to the terminal)
+     * Usage: ./craft abtestcraft/tests/export <testId>  (prints CSV to the terminal)
      *
      * @param int $testId The test ID to export
      */

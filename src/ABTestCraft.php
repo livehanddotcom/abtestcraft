@@ -7,6 +7,7 @@ namespace livehand\abtestcraft;
 use Craft;
 use craft\base\Plugin as BasePlugin;
 use craft\base\Model;
+use craft\console\Request as ConsoleRequest;
 use craft\events\RegisterUrlRulesEvent;
 use craft\events\RegisterUserPermissionsEvent;
 use craft\events\TemplateEvent;
@@ -17,6 +18,7 @@ use craft\services\Structures;
 use craft\services\UserPermissions;
 use craft\web\UrlManager;
 use craft\web\View;
+use livehand\abtestcraft\console\controllers\TestsController as ConsoleTestsController;
 use livehand\abtestcraft\models\Settings;
 use craft\elements\Entry;
 use craft\web\twig\variables\CraftVariable;
@@ -93,6 +95,14 @@ class ABTestCraft extends BasePlugin
         // Register console commands
         if (Craft::$app->getRequest()->getIsConsoleRequest()) {
             $this->controllerNamespace = 'livehand\\abtestcraft\\console\\controllers';
+            // Commands are abtestcraft/tests/<command>. Before 1.0.2 the console
+            // controller was ABTestCraftController, so keep its route working,
+            // registered only when used so `./craft help` lists each command once.
+            $request = Craft::$app->getRequest();
+            $route = $request instanceof ConsoleRequest ? ($request->getParams()[0] ?? '') : '';
+            if (is_string($route) && str_starts_with($route, 'abtestcraft/a-b-test-craft')) {
+                $this->controllerMap['a-b-test-craft'] = ConsoleTestsController::class;
+            }
         }
 
         // Defer most setup tasks until Craft is fully initialized

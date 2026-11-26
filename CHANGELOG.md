@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Tests can now be deleted from the control panel: **Delete test** on a test's settings page moves it to a new **Trash** tab on the Tests page. Trashed tests stop running and keep their data; from the Trash tab you can restore them or delete them permanently, which also removes their results.
+- Shorter console commands: `./craft abtestcraft/tests/list`, `stats`, `recalculate-stats`, `cleanup` and `export`. The previous `./craft abtestcraft/a-b-test-craft/<command>` form still works.
 
 ### Changed
 - Restoring a test that was running when it was deleted brings it back paused, so visitors aren't sent to the variant again until you start it. Its pages are cleared from the Blitz cache when you start it, rather than when it's restored.
