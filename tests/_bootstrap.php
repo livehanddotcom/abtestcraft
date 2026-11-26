@@ -19,7 +19,11 @@ date_default_timezone_set('UTC');
 // Define paths for test environment
 // CRAFT_ROOT_PATH must be defined first - it points to the parent Craft installation
 define('CRAFT_ROOT_PATH', dirname(__DIR__, 3));
-define('CRAFT_VENDOR_PATH', CRAFT_ROOT_PATH . DIRECTORY_SEPARATOR . 'vendor');
+// The Craft project the plugin is installed in (local development), or the
+// plugin's own vendor folder when it's checked out on its own (CI)
+define('CRAFT_VENDOR_PATH', is_dir(CRAFT_ROOT_PATH . DIRECTORY_SEPARATOR . 'vendor')
+    ? CRAFT_ROOT_PATH . DIRECTORY_SEPARATOR . 'vendor'
+    : dirname(__DIR__) . DIRECTORY_SEPARATOR . 'vendor');
 
 const CRAFT_TESTS_PATH = __DIR__;
 const CRAFT_STORAGE_PATH = __DIR__ . DIRECTORY_SEPARATOR . '_craft' . DIRECTORY_SEPARATOR . 'storage';
