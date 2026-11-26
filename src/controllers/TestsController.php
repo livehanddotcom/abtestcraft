@@ -9,6 +9,8 @@ use craft\elements\Entry;
 use craft\web\Controller;
 use livehand\abtestcraft\models\Test;
 use livehand\abtestcraft\ABTestCraft;
+use yii\web\BadRequestHttpException;
+use yii\web\ForbiddenHttpException;
 use yii\web\NotFoundHttpException;
 use yii\web\Response;
 
@@ -69,6 +71,9 @@ class TestsController extends Controller
 
     /**
      * Create new test form
+     *
+     * After a failed save, actionSave() passes the unsaved test (with its
+     * errors) back as route params, so the form re-renders what was typed.
      */
     public function actionNew(): Response
     {
@@ -82,23 +87,41 @@ class TestsController extends Controller
             return $this->redirect('abtestcraft/tests');
         }
 
-        $test = new Test();
-        $test->siteId = Craft::$app->getSites()->getCurrentSite()->id;
+        [$test, $controlEntry, $variantEntry] = $this->getFailedSaveParams();
+
+        if ($test === null) {
+            $test = new Test();
+            $test->siteId = Craft::$app->getSites()->getCurrentSite()->id;
+        }
 
         return $this->renderTemplate('abtestcraft/tests/_form', [
             'test' => $test,
             'isNew' => true,
-            'controlEntry' => null,
-            'variantEntry' => null,
+            'controlEntry' => $controlEntry,
+            'variantEntry' => $variantEntry,
         ]);
     }
 
     /**
      * Edit test form
+     *
+     * After a failed save, actionSave() passes the unsaved test (with its
+     * errors) back as route params, so the form re-renders what was typed.
      */
     public function actionEdit(int $testId): Response
     {
         $this->requirePermission('abtestcraft:manageTests');
+
+        [$test, $controlEntry, $variantEntry] = $this->getFailedSaveParams();
+
+        if ($test !== null) {
+            return $this->renderTemplate('abtestcraft/tests/_form', [
+                'test' => $test,
+                'isNew' => false,
+                'controlEntry' => $controlEntry,
+                'variantEntry' => $variantEntry,
+            ]);
+        }
 
         $test = ABTestCraft::getInstance()->tests->getTestById($testId);
 
@@ -154,7 +177,7 @@ class TestsController extends Controller
         $this->requirePermission('abtestcraft:manageTests');
 
         $request = Craft::$app->getRequest();
-        $testId = $request->getBodyParam('testId');
+        $testId = $this->getTestIdParam(false);
 
         if ($testId) {
             $test = ABTestCraft::getInstance()->tests->getTestById($testId);
@@ -162,10 +185,19 @@ class TestsController extends Controller
                 throw new NotFoundHttpException('Test not found');
             }
         } else {
+            // Same license gate as the New Test page; a direct POST mustn't bypass it
+            if (!ABTestCraft::getInstance()->license->canCreateTests()) {
+                throw new ForbiddenHttpException(
+                    Craft::t('abtestcraft', 'A valid license is required to create new tests.')
+                );
+            }
+
             $test = new Test();
+            // Only new tests take the current CP site. Re-saving an existing
+            // test with the site switcher on another site mustn't move it.
+            $test->siteId = Craft::$app->getSites()->getCurrentSite()->id;
         }
 
-        $test->siteId = Craft::$app->getSites()->getCurrentSite()->id;
         $test->name = $request->getBodyParam('name');
         $test->handle = $request->getBodyParam('handle');
 
@@ -232,7 +264,7 @@ class TestsController extends Controller
         $this->requirePermission('abtestcraft:manageTests');
 
         $request = Craft::$app->getRequest();
-        $testId = $request->getRequiredBodyParam('testId');
+        $testId = $this->getTestIdParam();
         $learnings = $request->getBodyParam('learnings');
 
         $test = ABTestCraft::getInstance()->tests->getTestById($testId);
@@ -251,6 +283,53 @@ class TestsController extends Controller
         Craft::$app->getSession()->setNotice('Learnings saved.');
 
         return $this->redirectToPostedUrl($test);
+    }
+
+    /**
+     * Read the posted test ID, accepting only a positive whole number.
+     *
+     * A plain (int) cast would turn junk into a real ID, e.g. an array
+     * (`testId[]=7`) becomes 1 and would act on test #1.
+     *
+     * @throws BadRequestHttpException
+     */
+    private function getTestIdParam(bool $required = true): ?int
+    {
+        $value = $this->request->getBodyParam('testId');
+
+        if (!$required && ($value === null || $value === '')) {
+            return null;
+        }
+
+        if ((!is_int($value) && !is_string($value)) || !ctype_digit((string) $value) || (int) $value < 1) {
+            throw new BadRequestHttpException('Invalid test ID.');
+        }
+
+        return (int) $value;
+    }
+
+    /**
+     * The unsaved test and entries actionSave() hands back after a failed save.
+     *
+     * Read from Craft's route params rather than action arguments: Yii also
+     * binds query-string values to action arguments, so `?test=1` would pass
+     * a string into a Test-typed parameter and throw a TypeError.
+     *
+     * @return array{0: ?Test, 1: ?Entry, 2: ?Entry}
+     */
+    private function getFailedSaveParams(): array
+    {
+        $params = Craft::$app->getUrlManager()->getRouteParams() ?? [];
+
+        $test = $params['test'] ?? null;
+        $controlEntry = $params['controlEntry'] ?? null;
+        $variantEntry = $params['variantEntry'] ?? null;
+
+        return [
+            $test instanceof Test ? $test : null,
+            $controlEntry instanceof Entry ? $controlEntry : null,
+            $variantEntry instanceof Entry ? $variantEntry : null,
+        ];
     }
 
     /**
@@ -342,7 +421,7 @@ class TestsController extends Controller
         $this->requireAcceptsJson();
         $this->requirePermission('abtestcraft:manageTests');
 
-        $testId = Craft::$app->getRequest()->getRequiredBodyParam('testId');
+        $testId = $this->getTestIdParam();
         $test = ABTestCraft::getInstance()->tests->getTestById($testId);
 
         if (!$test) {
@@ -364,7 +443,7 @@ class TestsController extends Controller
         $this->requirePostRequest();
         $this->requirePermission('abtestcraft:manageTests');
 
-        $testId = Craft::$app->getRequest()->getRequiredBodyParam('testId');
+        $testId = $this->getTestIdParam();
         $test = ABTestCraft::getInstance()->tests->getTestById($testId);
 
         if (!$test) {
@@ -398,7 +477,7 @@ class TestsController extends Controller
         $this->requirePostRequest();
         $this->requirePermission('abtestcraft:manageTests');
 
-        $testId = Craft::$app->getRequest()->getRequiredBodyParam('testId');
+        $testId = $this->getTestIdParam();
         $test = ABTestCraft::getInstance()->tests->getTestById($testId);
 
         if (!$test) {
@@ -430,7 +509,7 @@ class TestsController extends Controller
         $this->requirePermission('abtestcraft:manageTests');
 
         $request = Craft::$app->getRequest();
-        $testId = $request->getRequiredBodyParam('testId');
+        $testId = $this->getTestIdParam();
         $winner = $request->getBodyParam('winner');
 
         $test = ABTestCraft::getInstance()->tests->getTestById($testId);

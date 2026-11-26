@@ -20,6 +20,13 @@ class RebuildCascadeJob extends BaseJob
     public int $testId;
 
     /**
+     * @var bool Clear the test's page cache after rebuilding. Set when a test
+     * starts: child pages only count as "under test" once mapped, so Blitz may
+     * have cached some of them while this job waited in the queue.
+     */
+    public bool $clearPageCache = false;
+
+    /**
      * Execute the job
      */
     public function execute($queue): void
@@ -35,6 +42,10 @@ class RebuildCascadeJob extends BaseJob
         }
 
         $result = ABTestCraft::getInstance()->cascade->doRebuildDescendants($test);
+
+        if ($result && $this->clearPageCache && $test->isRunning()) {
+            ABTestCraft::getInstance()->pageCache->clearTestPages($test);
+        }
 
         if ($result) {
             Craft::info(

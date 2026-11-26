@@ -46,7 +46,6 @@
         if (goalId) {
             data.append('goalId', goalId);
         }
-        data.append(config.csrfTokenName || 'CRAFT_CSRF_TOKEN', config.csrfToken || '');
 
         // Use sendBeacon for reliability (fires even on page unload)
         if (navigator.sendBeacon) {
@@ -67,6 +66,160 @@
                 'conversion_type': goalType
             });
         }
+    }
+
+    /**
+     * Get the form element a form-plugin event refers to.
+     * Freeform 5 dispatches its events on `document` and passes the form as
+     * `event.form`; Formie (and older Freeform) dispatch on the form itself.
+     */
+    function getEventForm(event) {
+        if (event.form && event.form.nodeType === 1) return event.form;
+        if (event.target && event.target.nodeType === 1) return event.target;
+        return null;
+    }
+
+    /**
+     * Get a Freeform form's handle (Freeform 5: data-handle; older: data-freeform-form)
+     */
+    function getFreeformHandle(form) {
+        return form.getAttribute('data-handle') || form.getAttribute('data-freeform-form');
+    }
+
+    /**
+     * Formie 3 keeps its settings as JSON in data-fui-form
+     */
+    function getFormie3Config(form) {
+        var raw = form.getAttribute('data-fui-form');
+        if (!raw || raw.charAt(0) !== '{') return {};
+        try {
+            return JSON.parse(raw) || {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    /**
+     * Get a Formie form's handle (Formie 4: data-formie-handle; Formie 3:
+     * data-form-handle, with its data-fui-form JSON as a fallback)
+     */
+    function getFormieHandle(form) {
+        return form.getAttribute('data-formie-handle')
+            || form.getAttribute('data-form-handle')
+            || getFormie3Config(form).formHandle
+            || null;
+    }
+
+    function isFormieForm(form) {
+        return form.hasAttribute('data-formie') || form.hasAttribute('data-fui-form');
+    }
+
+    function isFormieAjax(form) {
+        var method = form.getAttribute('data-formie-submit-method') || form.getAttribute('data-form-submit-method');
+        if (!method) {
+            var config = getFormie3Config(form);
+            method = config.submitMethod || (config.settings && config.settings.submitMethod);
+        }
+        return method === 'ajax';
+    }
+
+    /**
+     * Whether a page-reload Formie submit is not the final submission: an
+     * intermediate page of a multi-page form, or a Back/Save action. Formie 3
+     * exposes the pages and current page in its data-fui-form settings.
+     */
+    function isFormieNonFinalSubmit(form) {
+        var action = form.querySelector('input[name="submitAction"]');
+        if (action && action.value && action.value !== 'submit') return true;
+
+        // Formie 3: pages and current page are in the data-fui-form settings
+        var settings = getFormie3Config(form).settings || {};
+        var pages = settings.pages || [];
+        if (settings.hasMultiplePages && pages.length && settings.currentPageId != null) {
+            var lastPage = pages[pages.length - 1];
+            if (lastPage && String(settings.currentPageId) !== String(lastPage.id)) return true;
+        }
+
+        // Formie 4: a hidden pageId input holds the current page; each page is
+        // a [data-formie-page-id] section
+        var pageInput = form.querySelector('input[name="pageId"]');
+        var pageSections = form.querySelectorAll('[data-formie-page-id]');
+        if (pageInput && pageInput.value && pageSections.length > 1) {
+            var lastId = pageSections[pageSections.length - 1].getAttribute('data-formie-page-id');
+            if (lastId && pageInput.value !== lastId) return true;
+        }
+
+        return false;
+    }
+
+
+    /**
+     * Smart mode, Freeform page-reload forms: after a successful submission
+     * Freeform reloads the page and renders its success message inside the
+     * form (once; a refresh doesn't show it again). Count that on page load.
+     * If the form redirects elsewhere on success, that page isn't under test
+     * and has no tracking script, same as page-visit goals.
+     */
+    function checkFreeformPageReloadSuccess() {
+        var formGoal = goals.form;
+        if (!formGoal || !formGoal.enabled) return;
+        if (!trackFormSubmissions) return;
+
+        var goalConfig = formGoal.config || {};
+        if ((goalConfig.mode || 'advanced') !== 'smart') return;
+
+        var forms = document.querySelectorAll('form[data-freeform]');
+        for (var i = 0; i < forms.length; i++) {
+            var form = forms[i];
+            if (form.hasAttribute('data-ajax')) continue;
+            if (!form.querySelector('.freeform-form-success, .ff-form-success')) continue;
+            if (!shouldTrackSmartForm(goalConfig, 'freeform', getFreeformHandle(form))) continue;
+
+            sendConversion('form', formGoal.id);
+            return;
+        }
+    }
+
+    /**
+     * Whether a smart-mode form goal covers this form (no forms selected = all forms)
+     */
+    function shouldTrackSmartForm(goalConfig, plugin, handle) {
+        var formsToTrack = goalConfig.parsedForms || [];
+        if (formsToTrack.length === 0) return true;
+
+        return formsToTrack.some(function(f) {
+            return f.plugin === plugin && f.handle === handle;
+        });
+    }
+
+    /**
+     * Smart mode, page-reload forms. Freeform and Formie fire no JavaScript
+     * success event when a form submits with a full page load, so count the
+     * submit of a selected form. AJAX forms are skipped here and counted on
+     * their success event, which confirms the submission was accepted.
+     */
+    function trackSmartPageReloadSubmit(form, formGoal) {
+        var plugin = null;
+        var handle = null;
+
+        if (form.hasAttribute('data-freeform')) {
+            // Freeform cancels this event and re-submits with form.submit(),
+            // and only the server knows if the submission succeeded. Page-reload
+            // Freeform forms are counted on the reloaded page instead (see
+            // checkFreeformPageReloadSuccess); AJAX ones on freeform-ajax-success.
+            return;
+        } else if (isFormieForm(form)) {
+            if (isFormieAjax(form) || isFormieNonFinalSubmit(form)) return;
+            plugin = 'formie';
+            handle = getFormieHandle(form);
+        } else {
+            // Not a Freeform/Formie form (e.g. search or newsletter)
+            return;
+        }
+
+        if (!shouldTrackSmartForm(formGoal.config || {}, plugin, handle)) return;
+
+        sendConversion('form', formGoal.id);
     }
 
     /**
@@ -241,6 +394,11 @@
 
         var form = event.target;
         var goalConfig = formGoal.config || {};
+
+        // Smart mode is handled by handleSmartSubmit (page-reload forms) and
+        // the form plugins' success events (AJAX forms)
+        if ((goalConfig.mode || 'advanced') === 'smart') return;
+
         var formSelector = goalConfig.formSelector;
         var successMethod = goalConfig.successMethod || 'any';
         var successSelector = goalConfig.successSelector;
@@ -263,6 +421,23 @@
                 sendConversion('form', formGoal.id);
             });
         }
+    }
+
+    /**
+     * Smart mode, page-reload forms. Registered on window in the bubble phase
+     * so it runs after the form plugin's own submit handler: if that handler
+     * cancelled the submit (e.g. client-side validation failed), nothing is
+     * counted.
+     */
+    function handleSmartSubmit(event) {
+        var formGoal = goals.form;
+        if (!formGoal || !formGoal.enabled) return;
+        if (!trackFormSubmissions) return;
+        if (((formGoal.config || {}).mode || 'advanced') !== 'smart') return;
+        if (event.defaultPrevented) return;
+        if (!event.target || event.target.nodeType !== 1) return;
+
+        trackSmartPageReloadSubmit(event.target, formGoal);
     }
 
     /**
@@ -376,53 +551,66 @@
         // Only use smart tracking in 'smart' mode
         if (mode !== 'smart') return;
 
-        // Get array of forms to track (empty = track all forms)
-        var formsToTrack = goalConfig.parsedForms || [];
-
-        /**
-         * Check if a form matches the selected forms list
-         * @param {string} plugin - Form plugin ('freeform' or 'formie')
-         * @param {string} handle - Form handle
-         * @returns {boolean} - True if form should be tracked
-         */
-        function shouldTrackForm(plugin, handle) {
-            // If no forms selected, track all forms
-            if (formsToTrack.length === 0) {
-                return true;
-            }
-
-            // Check if this specific form is in the selected list
-            return formsToTrack.some(function(f) {
-                return f.plugin === plugin && f.handle === handle;
-            });
-        }
-
         // Freeform tracking using native event
         document.addEventListener('freeform-ajax-success', function(event) {
-            var form = event.target;
-            var formHandle = form.getAttribute('data-freeform-form');
+            var form = getEventForm(event);
+            if (!form) return;
+            var formHandle = getFreeformHandle(form);
 
-            if (!shouldTrackForm('freeform', formHandle)) {
+            if (!shouldTrackSmartForm(goalConfig, 'freeform', formHandle)) {
                 return;
             }
 
             sendConversion('form', formGoal.id);
         });
 
-        // Formie tracking using native event
-        document.addEventListener('onAfterFormieSubmit', function(event) {
-            // Skip multi-page form intermediate pages
-            if (event.detail && event.detail.nextPageId) return;
+        // Formie. Formie 3 and Formie 4 (with or without its compatibility
+        // mode) signal success differently, so listen for each and dedupe via
+        // sendConversion (one form conversion per page load). Capture phase so
+        // events that don't bubble are still seen.
+        //
+        // Page-reload forms: Formie cancels the native submit, validates, then
+        // re-submits with form.submit(), which fires no submit event. The
+        // "submitting now" signal is onFormieSubmit (Formie 3: fires only once
+        // valid; Formie 4: fires on every attempt with detail.ok) or Formie 4's
+        // formie:submit:after (detail.ok, code PREFLIGHT_COMPLETE).
+        function handleFormiePageReloadSubmit(event) {
+            var form = getEventForm(event);
+            if (!form || !isFormieForm(form) || isFormieAjax(form)) return;
 
-            var form = event.target;
-            var formHandle = form.getAttribute('data-fui-form');
+            var detail = event.detail || {};
+            if ('ok' in detail && detail.ok !== true) return; // Formie 4: failed attempt
 
-            if (!shouldTrackForm('formie', formHandle)) {
-                return;
-            }
+            if (isFormieNonFinalSubmit(form)) return;
+            if (!shouldTrackSmartForm(goalConfig, 'formie', getFormieHandle(form))) return;
 
             sendConversion('form', formGoal.id);
-        });
+        }
+
+        // AJAX forms: the submission result (Formie 3/4 compat:
+        // onAfterFormieSubmit; Formie 4: formie:submit:result)
+        function handleFormieAjaxResult(event) {
+            var form = getEventForm(event);
+            if (!form || !isFormieForm(form) || !isFormieAjax(form)) return;
+
+            var detail = event.detail || {};
+            var meta = detail.meta || {};
+            if ('ok' in detail && detail.ok !== true) return;
+            if (detail.code === 'PREFLIGHT_COMPLETE') return; // not the final result
+            // Intermediate page of a multi-page form
+            if (detail.nextPageId || meta.nextPageId || detail.nextPage || meta.isFinalPage === false) return;
+            // Formie 4 shows spam submissions a fake success; don't count them
+            if (detail.outcome === 'rejected' || meta.outcome === 'rejected') return;
+
+            if (!shouldTrackSmartForm(goalConfig, 'formie', getFormieHandle(form))) return;
+
+            sendConversion('form', formGoal.id);
+        }
+
+        document.addEventListener('onFormieSubmit', handleFormiePageReloadSubmit, true);
+        document.addEventListener('formie:submit:after', handleFormiePageReloadSubmit, true);
+        document.addEventListener('onAfterFormieSubmit', handleFormieAjaxResult, true);
+        document.addEventListener('formie:submit:result', handleFormieAjaxResult, true);
     }
 
     /**
@@ -443,8 +631,8 @@
 
             // Check if this form matches (if selector configured)
             if (formSelector) {
-                var form = event.target;
-                if (!matchesSelector(form, formSelector)) return;
+                var form = getEventForm(event);
+                if (!form || !matchesSelector(form, formSelector)) return;
             }
 
             sendConversion('form', formGoal.id);
@@ -487,11 +675,14 @@
         // Add click listener for phone, email, download, and page goals
         document.addEventListener('click', handleClick, true);
 
-        // Add form submit listener
+        // Add form submit listeners (capture for advanced mode; bubble on
+        // window for smart mode so cancelled submits can be skipped)
         document.addEventListener('submit', handleFormSubmit, true);
+        window.addEventListener('submit', handleSmartSubmit, false);
 
         // Setup smart form tracking (for 'smart' mode)
         setupSmartFormTracking();
+        checkFreeformPageReloadSuccess();
 
         // Setup legacy Freeform listener (for 'advanced' mode)
         setupFreeformListener();

@@ -12,20 +12,7 @@
 {% endblock %}
 
 {% block content %}
-    {# License Warning Banner #}
-    {% if licenseInfo is defined and licenseInfo.message %}
-    <div style="margin-bottom: 24px; padding: 16px; border-radius: 6px;
-        {% if licenseInfo.color == 'orange' %}background: #fff3cd; border: 1px solid #ffeeba; color: #856404;
-        {% elseif licenseInfo.color == 'red' %}background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24;
-        {% endif %}">
-        <strong>{{ licenseInfo.label }}</strong>: {{ licenseInfo.message }}
-        {% if licenseInfo.color == 'orange' %}
-            <a href="{{ url('plugin-store/abtestcraft') }}" class="go" style="margin-left: 8px;">{{ 'Purchase License'|t('abtestcraft') }}</a>
-        {% elseif licenseInfo.color == 'red' %}
-            <a href="https://console.craftcms.com" target="_blank" rel="noopener" class="go" style="margin-left: 8px;">{{ 'Manage License'|t('abtestcraft') }}</a>
-        {% endif %}
-    </div>
-    {% endif %}
+    {# License notices come from the CP alert registered in ABTestCraft::registerLicenseAlert() #}
 
     {# Tab Navigation #}
     <div class="pane" style="margin-bottom: 24px; padding: 0;">

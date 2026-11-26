@@ -26,8 +26,12 @@ class CascadeService extends Component
     /**
      * Rebuild all descendant mappings for a test
      * Called when test is saved or entry structure changes
+     *
+     * @param bool $clearPageCacheWhenQueued When the rebuild is queued, clear
+     * the test's page cache once it finishes (set when a test starts, since
+     * child pages may be cached before they're mapped)
      */
-    public function rebuildDescendants(Test $test): bool
+    public function rebuildDescendants(Test $test, bool $clearPageCacheWhenQueued = false): bool
     {
         if (!$test->id || !$test->controlEntryId || !$test->variantEntryId) {
             return false;
@@ -54,6 +58,7 @@ class CascadeService extends Component
             // Push to queue for async processing
             Craft::$app->getQueue()->push(new RebuildCascadeJob([
                 'testId' => $test->id,
+                'clearPageCache' => $clearPageCacheWhenQueued,
             ]));
             return true;
         }
@@ -161,6 +166,7 @@ class CascadeService extends Component
                 'td.descendantEntryId' => $entryId,
                 'td.siteId' => $siteId,
                 't.status' => Test::STATUS_RUNNING,
+                't.dateDeleted' => null,
             ])
             ->orderBy(['td.depth' => SORT_ASC])
             ->all();
@@ -337,6 +343,7 @@ class CascadeService extends Component
                 'variantEntryId' => $entryId,
                 'siteId' => $siteId,
                 'status' => Test::STATUS_RUNNING,
+                'dateDeleted' => null,
             ])
             ->one();
 

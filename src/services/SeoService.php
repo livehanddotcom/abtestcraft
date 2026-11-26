@@ -39,17 +39,24 @@ class SeoService extends Component
 
         $controlUrl = $controlEntry->getUrl();
 
+        // noindex/canonical only apply while the test runs, so don't let a
+        // page cache keep this response around after the test stops
+        ABTestCraft::getInstance()->pageCache->excludeCurrentRequest();
+
         // Inject noindex meta tag
         Craft::$app->getView()->registerMetaTag([
             'name' => 'robots',
             'content' => 'noindex,follow',
         ], 'abtestcraft-robots');
 
-        // Inject canonical link
-        Craft::$app->getView()->registerLinkTag([
-            'rel' => 'canonical',
-            'href' => $controlUrl,
-        ], 'abtestcraft-canonical');
+        // Inject canonical link, only to a live control page (a disabled or
+        // scheduled control would make it point at a 404)
+        if ($controlUrl && $controlEntry->getStatus() === Entry::STATUS_LIVE) {
+            Craft::$app->getView()->registerLinkTag([
+                'rel' => 'canonical',
+                'href' => $controlUrl,
+            ], 'abtestcraft-canonical');
+        }
     }
 
     /**
@@ -64,6 +71,7 @@ class SeoService extends Component
                 'variantEntryId' => $entry->id,
                 'siteId' => $entry->siteId,
                 'status' => Test::STATUS_RUNNING,
+                'dateDeleted' => null,
             ])
             ->one();
 
@@ -85,6 +93,7 @@ class SeoService extends Component
                 'variantEntryId' => $entry->id,
                 'siteId' => $entry->siteId,
                 'status' => Test::STATUS_RUNNING,
+                'dateDeleted' => null,
             ])
             ->exists();
     }
@@ -100,6 +109,7 @@ class SeoService extends Component
                 'controlEntryId' => $entry->id,
                 'siteId' => $entry->siteId,
                 'status' => Test::STATUS_RUNNING,
+                'dateDeleted' => null,
             ])
             ->exists();
     }

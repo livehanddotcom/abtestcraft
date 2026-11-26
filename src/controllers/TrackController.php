@@ -7,6 +7,7 @@ namespace livehand\abtestcraft\controllers;
 use Craft;
 use craft\web\Controller;
 use DateTime;
+use livehand\abtestcraft\models\Test;
 use livehand\abtestcraft\records\RateLimitRecord;
 use livehand\abtestcraft\ABTestCraft;
 use yii\web\Response;
@@ -20,6 +21,24 @@ class TrackController extends Controller
      * Allow anonymous access to tracking endpoints
      */
     protected array|int|bool $allowAnonymous = ['convert'];
+
+    /**
+     * Skip CSRF validation for the anonymous conversion beacon.
+     *
+     * A CSRF token embedded in the page goes stale when the page is served
+     * from any page cache (Blitz, CDN), silently dropping every conversion.
+     * CSRF adds no protection here: a conversion is only recorded for the
+     * visitor ID in the requester's own first-party cookie (SameSite=Lax, so
+     * not sent on cross-site POSTs), and the endpoint is rate limited.
+     */
+    public function beforeAction($action): bool
+    {
+        if ($action->id === 'convert') {
+            $this->enableCsrfValidation = false;
+        }
+
+        return parent::beforeAction($action);
+    }
 
     /**
      * Record a conversion
@@ -37,8 +56,8 @@ class TrackController extends Controller
             return $this->asJson(['success' => false, 'error' => 'Missing parameters']);
         }
 
-        // Validate testHandle format (must be kebab-case starting with letter)
-        if (!is_string($testHandle) || !preg_match('/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/', $testHandle)) {
+        // Validate testHandle format (same rule as test handles themselves)
+        if (!is_string($testHandle) || !preg_match(Test::HANDLE_PATTERN, $testHandle)) {
             return $this->asJson(['success' => false, 'error' => 'Invalid test handle format']);
         }
 

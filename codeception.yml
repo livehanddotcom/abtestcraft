@@ -9,8 +9,13 @@
 #
 # NOTE: Do not use "./vendor/bin/codecept run" without a suite name.
 # Unit tests use a minimal Yii app, integration tests use full Craft bootstrap.
+#
+# Integration tests use the database configured in tests/.env (Postgres in ddev
+# by default). To run them against MySQL, point CRAFT_DB_DSN there at an
+# installed Craft MySQL database (e.g. "mysql:host=...;port=3306;dbname=...").
+# Craft's TestSetup reloads tests/.env over shell variables, so set it in the file.
 
-namespace: kyleulch\abtestcraft\tests
+namespace: livehand\abtestcraft\tests
 support_namespace: Support
 paths:
   tests: tests

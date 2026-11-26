@@ -71,14 +71,21 @@ Tracks clicks on `mailto:` links.
 
 ### Form Submission
 Tracks form submissions with smart detection:
-- **Smart Mode**: Auto-detects Freeform/Formie success events
+- **Smart Mode**: Detects successful submissions of the Freeform or Formie forms you select (Freeform 5; Formie 3 and 4, with or without Formie 4's compatibility mode). Failed validation, intermediate pages of multi-page forms, and unselected or unrelated forms (search, newsletter) don't count.
 - **Advanced Mode**: Configure CSS selectors for custom forms
+
+Form goals are tracked on the tested page itself. For the most accurate results, use AJAX forms:
+- **AJAX forms** are counted when the form plugin reports success.
+- **Page-reload forms** are counted when the form plugin submits after validating in the browser (Formie) or when the success message appears after the reload (Freeform). A Formie page-reload submission that the server later rejects (for example as spam) may still be counted.
+- **Forms that redirect to another page on success** (e.g. a thank-you page that isn't under test) aren't counted, because that page has no tracking script. Use a page-visit goal pointing at the link to it, or keep the success message on the tested page.
 
 ### File Download
 Tracks downloads by file extension (PDF, DOC, XLS, ZIP, etc.).
 
 ### Page Visit
 Tracks visits to a specific URL. Match types: exact, starts with, contains.
+
+Counted when a visitor on the tested page clicks a link to that URL, or when the URL is itself a tested page (e.g. a child of the control entry). A redirect to the URL (such as after a form submission) isn't counted, because the destination page has no tracking script.
 
 ### Custom Event
 Track custom conversions via JavaScript:
@@ -171,7 +178,7 @@ Parameters:
 - `conversionType` (string, required): phone, email, form, download, page, or custom
 - `goalId` (int, optional): Specific goal ID
 
-Requires CSRF token in request.
+No CSRF token is required, so conversions keep working on cached pages. A conversion is only recorded for a visitor who was assigned a variant (identified by their first-party cookie), and the endpoint is rate limited.
 
 ## Console Commands
 
@@ -188,6 +195,21 @@ Requires CSRF token in request.
 4. **Tracking**: JavaScript tracks configured goals and sends conversions to the server
 5. **Statistics**: Chi-squared test calculates statistical significance
 6. **Notification**: Email sent when test reaches significance threshold
+
+## Trial
+
+You can install ABTestCraft from the Plugin Store as a free trial and use every feature, including creating and running tests, so you can evaluate it on staging before buying. Craft shows a reminder in the control panel until you purchase a license.
+
+## Static & Full-Page Caching (Blitz, CDNs)
+
+Variant assignment happens on the server when a page renders, so a page must not be served from a shared full-page cache while it's being tested. ABTestCraft handles this automatically:
+
+- **All setups**: pages with a running test (the control entry and its descendants) are sent with `Cache-Control: private, no-cache`, so CDNs and reverse proxies won't share one visitor's variant with everyone.
+- **Blitz**: detected automatically, no configuration needed. ABTestCraft tells Blitz not to cache tested pages (the control entry, its child pages, and the variant entry's own URL while it carries the test's `noindex`/canonical tags). Whenever a running test is saved, started or restored, it clears their existing Blitz cache, including query-string and paginated versions, and purges them through any configured purger such as Cloudflare. Blitz's cache generator is never assigned a variant or counted as an impression.
+
+Only the pages under test skip the cache, and only while the test is running. Every other page stays cached as usual. When the test is paused or completed, its pages are cached again on the next visit.
+
+If your CDN ignores origin `Cache-Control` headers (for example, a Cloudflare "Cache Everything" rule), add a bypass rule for the tested URLs while the test runs.
 
 ## Data Retention & Backup
 

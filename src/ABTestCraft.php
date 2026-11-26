@@ -26,6 +26,7 @@ use livehand\abtestcraft\services\CascadeService;
 use livehand\abtestcraft\services\FormPluginDetectorService;
 use livehand\abtestcraft\services\GoalsService;
 use livehand\abtestcraft\services\NotificationService;
+use livehand\abtestcraft\services\PageCacheService;
 use livehand\abtestcraft\services\RoutingService;
 use livehand\abtestcraft\services\SeoService;
 use livehand\abtestcraft\services\StatsService;
@@ -56,10 +57,11 @@ use yii\base\Event;
  * @property NotificationService $notifications
  * @property AuditService $audit
  * @property LicenseService $license
+ * @property PageCacheService $pageCache
  */
 class ABTestCraft extends BasePlugin
 {
-    public string $schemaVersion = '1.4.0';
+    public string $schemaVersion = '1.4.2';
     public bool $hasCpSettings = true;
     public bool $hasCpSection = true;
 
@@ -79,6 +81,7 @@ class ABTestCraft extends BasePlugin
                 'notifications' => NotificationService::class,
                 'audit' => AuditService::class,
                 'license' => LicenseService::class,
+                'pageCache' => PageCacheService::class,
             ],
         ];
     }
@@ -268,9 +271,9 @@ class ABTestCraft extends BasePlugin
         $config = [
             'testHandle' => $test->handle,
             'variant' => $variant,
+            // No CSRF token: a token baked into the page goes stale under any
+            // page cache, and the endpoint doesn't need one (see TrackController)
             'trackingEndpoint' => '/actions/abtestcraft/track/convert',
-            'csrfTokenName' => Craft::$app->getConfig()->getGeneral()->csrfTokenName,
-            'csrfToken' => Craft::$app->getRequest()->getCsrfToken(),
             'trackPhoneClicks' => $settings->trackPhoneClicks,
             'trackEmailClicks' => $settings->trackEmailClicks,
             'trackFormSubmissions' => $settings->trackFormSubmissions,
@@ -317,6 +320,11 @@ class ABTestCraft extends BasePlugin
      */
     private function registerLicenseAlert(RegisterCpAlertsEvent $event): void
     {
+        // Only nag on the plugin's own pages, not across the whole CP
+        if (!$this->isPluginCpPage()) {
+            return;
+        }
+
         $licenseInfo = $this->license->getStatusInfo();
 
         // Only show alert for trial or issue states
@@ -331,8 +339,41 @@ class ABTestCraft extends BasePlugin
             $buyUrl = UrlHelper::url('plugin-store/abtestcraft');
             $message .= ' <a class="go" href="' . $buyUrl . '">' .
                 Craft::t('abtestcraft', 'Buy now') . '</a>';
+        } elseif ($this->license->hasIssues()) {
+            $message .= ' <a class="go" href="https://console.craftcms.com" target="_blank" rel="noopener">' .
+                Craft::t('abtestcraft', 'Manage license') . '</a>';
         }
 
         $event->alerts[] = $message;
+    }
+
+    /**
+     * Whether the CP page being viewed belongs to this plugin (abtestcraft/*).
+     *
+     * Craft builds alerts either while rendering the page, or via an
+     * `app/get-cp-alerts` action request that posts the page's `path`, so
+     * the path has to come from whichever of the two this request is.
+     */
+    private function isPluginCpPage(): bool
+    {
+        $request = Craft::$app->getRequest();
+
+        // Only Craft's background alerts fetch carries the page path in the
+        // body; other action requests (e.g. a form re-rendered after a failed
+        // save) are on the page they were posted to
+        $isAlertsFetch = $request->getIsActionRequest()
+            && $request->getActionSegments() === ['app', 'get-cp-alerts'];
+
+        $path = $isAlertsFetch
+            ? $request->getBodyParam('path')
+            : $request->getPathInfo();
+
+        if (!is_string($path)) {
+            return false;
+        }
+
+        $path = trim($path, '/');
+
+        return $path === $this->handle || str_starts_with($path, $this->handle . '/');
     }
 }

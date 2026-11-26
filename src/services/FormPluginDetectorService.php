@@ -25,7 +25,8 @@ class FormPluginDetectorService extends Component
             'class' => 'Solspace\\Freeform\\Freeform',
             'name' => 'Freeform',
             'formSelector' => '.freeform-form',
-            'formAttributeSelector' => 'form[data-freeform-form="{handle}"]',
+            // Freeform 5 marks forms with data-freeform and data-handle
+            'formAttributeSelector' => 'form[data-freeform][data-handle="{handle}"]',
             'successSelectors' => ['.ff-form-success', '.freeform-form-success'],
             'successEvent' => 'freeform-ajax-success',
         ],
@@ -33,8 +34,9 @@ class FormPluginDetectorService extends Component
             'handle' => 'formie',
             'class' => 'verbb\\formie\\Formie',
             'name' => 'Formie',
-            'formSelector' => '.fui-form',
-            'formAttributeSelector' => 'form[data-fui-form="{handle}"]',
+            // Formie 3: .fui-form + data-form-handle; Formie 4: .formie-form + data-formie-handle
+            'formSelector' => '.fui-form, .formie-form',
+            'formAttributeSelector' => 'form[data-form-handle="{handle}"], form[data-formie-handle="{handle}"]',
             'successSelectors' => ['.fui-form-success'],
             'successEvent' => 'onAfterFormieSubmit',
         ],
