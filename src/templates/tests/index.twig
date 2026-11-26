@@ -3,9 +3,17 @@
 {% set title = "Split Tests" %}
 {% set selectedSubnavItem = "tests" %}
 
+{# Site switcher on multi-site installs (tests belong to one site) #}
+{% block contextMenu %}
+    {% include "_elements/sitemenu" with {
+        selectedSiteId: site.id,
+        urlFormat: 'abtestcraft/tests?site={handle}&status=' ~ statusFilter,
+    } only %}
+{% endblock %}
+
 {% block actionButton %}
     {% if canCreateTests %}
-        <a href="{{ url('abtestcraft/tests/new') }}" class="btn submit">New Test</a>
+        <a href="{{ url('abtestcraft/tests/new', { site: site.handle }) }}" class="btn submit">New Test</a>
     {% else %}
         <span class="btn submit disabled" title="{{ 'License required to create new tests'|t('abtestcraft') }}" style="opacity: 0.5; cursor: not-allowed;">New Test</span>
     {% endif %}
@@ -17,25 +25,25 @@
     {# Tab Navigation #}
     <div class="pane" style="margin-bottom: 24px; padding: 0;">
         <nav style="display: flex; border-bottom: none;">
-            <a href="{{ url('abtestcraft/tests', { status: 'active' }) }}"
+            <a href="{{ url('abtestcraft/tests', { status: 'active', site: site.handle }) }}"
                class="tab{% if statusFilter == 'active' %} sel{% endif %}"
                style="padding: 12px 20px; text-decoration: none; color: {% if statusFilter == 'active' %}#0d78f2{% else %}#3f4d5a{% endif %}; border-bottom: 2px solid {% if statusFilter == 'active' %}#0d78f2{% else %}transparent{% endif %}; font-weight: {% if statusFilter == 'active' %}600{% else %}normal{% endif %};">
                 Active
                 <span style="margin-left: 6px; padding: 2px 8px; background: {% if statusFilter == 'active' %}#e3f2fd{% else %}#e9ecef{% endif %}; border-radius: 10px; font-size: 12px;">{{ counts.active }}</span>
             </a>
-            <a href="{{ url('abtestcraft/tests', { status: 'completed' }) }}"
+            <a href="{{ url('abtestcraft/tests', { status: 'completed', site: site.handle }) }}"
                class="tab{% if statusFilter == 'completed' %} sel{% endif %}"
                style="padding: 12px 20px; text-decoration: none; color: {% if statusFilter == 'completed' %}#0d78f2{% else %}#3f4d5a{% endif %}; border-bottom: 2px solid {% if statusFilter == 'completed' %}#0d78f2{% else %}transparent{% endif %}; font-weight: {% if statusFilter == 'completed' %}600{% else %}normal{% endif %};">
                 Completed
                 <span style="margin-left: 6px; padding: 2px 8px; background: {% if statusFilter == 'completed' %}#e3f2fd{% else %}#e9ecef{% endif %}; border-radius: 10px; font-size: 12px;">{{ counts.completed }}</span>
             </a>
-            <a href="{{ url('abtestcraft/tests', { status: 'all' }) }}"
+            <a href="{{ url('abtestcraft/tests', { status: 'all', site: site.handle }) }}"
                class="tab{% if statusFilter == 'all' %} sel{% endif %}"
                style="padding: 12px 20px; text-decoration: none; color: {% if statusFilter == 'all' %}#0d78f2{% else %}#3f4d5a{% endif %}; border-bottom: 2px solid {% if statusFilter == 'all' %}#0d78f2{% else %}transparent{% endif %}; font-weight: {% if statusFilter == 'all' %}600{% else %}normal{% endif %};">
                 All
                 <span style="margin-left: 6px; padding: 2px 8px; background: {% if statusFilter == 'all' %}#e3f2fd{% else %}#e9ecef{% endif %}; border-radius: 10px; font-size: 12px;">{{ counts.all }}</span>
             </a>
-            <a href="{{ url('abtestcraft/tests', { status: 'trashed' }) }}"
+            <a href="{{ url('abtestcraft/tests', { status: 'trashed', site: site.handle }) }}"
                class="tab{% if statusFilter == 'trashed' %} sel{% endif %}"
                style="margin-left: auto; padding: 12px 20px; text-decoration: none; color: {% if statusFilter == 'trashed' %}#0d78f2{% else %}#3f4d5a{% endif %}; border-bottom: 2px solid {% if statusFilter == 'trashed' %}#0d78f2{% else %}transparent{% endif %}; font-weight: {% if statusFilter == 'trashed' %}600{% else %}normal{% endif %};">
                 Trash
@@ -231,7 +239,7 @@
                 <p>No active tests.</p>
                 {% if counts.all == 0 %}
                     {% if canCreateTests %}
-                        <a href="{{ url('abtestcraft/tests/new') }}" class="btn submit">Create your first test</a>
+                        <a href="{{ url('abtestcraft/tests/new', { site: site.handle }) }}" class="btn submit">Create your first test</a>
                     {% else %}
                         <p style="margin-top: 12px; color: #856404;">
                             <a href="{{ url('plugin-store/abtestcraft') }}" class="go">{{ 'Purchase a license'|t('abtestcraft') }}</a> {{ 'to create tests.'|t('abtestcraft') }}
@@ -243,7 +251,7 @@
             {% else %}
                 <p>No split tests yet.</p>
                 {% if canCreateTests %}
-                    <a href="{{ url('abtestcraft/tests/new') }}" class="btn submit">Create your first test</a>
+                    <a href="{{ url('abtestcraft/tests/new', { site: site.handle }) }}" class="btn submit">Create your first test</a>
                 {% else %}
                     <p style="margin-top: 12px; color: #856404;">
                         <a href="{{ url('plugin-store/abtestcraft') }}" class="go">{{ 'Purchase a license'|t('abtestcraft') }}</a> {{ 'to create tests.'|t('abtestcraft') }}

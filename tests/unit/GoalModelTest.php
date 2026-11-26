@@ -64,6 +64,25 @@ class GoalModelTest extends Unit
         $this->assertTrue($goal->matchesPageUrl('https://www.example.org/thank-you'));
     }
 
+    /**
+     * A test on a site under a path (/fr/) can use the site's own paths
+     */
+    public function testGoalMatchesRelativeToTheSitePath(): void
+    {
+        $goal = $this->pageGoal('/thank-you', Goal::MATCH_EXACT);
+        $this->assertTrue($goal->matchesPageUrl('https://example.com/fr/thank-you', 'fr'));
+        $this->assertTrue($goal->matchesPageUrl('https://example.com/fr/thank-you', '/fr/'));
+        $this->assertFalse($goal->matchesPageUrl('https://example.com/fr/thank-you'), 'Without the site path');
+        $this->assertFalse($goal->matchesPageUrl('https://example.com/de/thank-you', 'fr'));
+        $this->assertFalse($goal->matchesPageUrl('https://example.com/french/thank-you', 'fr'));
+
+        $prefixed = $this->pageGoal('/fr/thank-you', Goal::MATCH_EXACT);
+        $this->assertTrue($prefixed->matchesPageUrl('https://example.com/fr/thank-you', 'fr'), 'Full path still works');
+
+        $home = $this->pageGoal('/', Goal::MATCH_EXACT);
+        $this->assertTrue($home->matchesPageUrl('https://example.com/fr', 'fr'));
+    }
+
     public function testEmptyGoalUrlMatchesNothing(): void
     {
         $this->assertFalse($this->pageGoal('', Goal::MATCH_CONTAINS)->matchesPageUrl('https://example.com/'));

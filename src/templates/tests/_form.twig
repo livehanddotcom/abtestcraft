@@ -10,7 +10,10 @@
 {% block content %}
     <input type="hidden" name="action" value="abtestcraft/tests/save">
     {{ csrfInput() }}
-    {{ redirectInput('abtestcraft/tests/{id}') }}
+    {# The site a new test is created on (tests belong to one site) #}
+    {% if isNew and test.siteId %}{{ hiddenInput('siteId', test.siteId) }}{% endif %}
+    {% set testSite = test.siteId ? craft.app.sites.getSiteById(test.siteId) : null %}
+    {{ redirectInput('abtestcraft/tests/{id}' ~ (craft.app.isMultiSite and testSite ? '?site=' ~ testSite.handle : '')) }}
 
     {% if test.id %}
         <input type="hidden" name="testId" value="{{ test.id }}">
@@ -64,6 +67,9 @@
     <hr>
 
     <h2>Test Pages</h2>
+    {% if craft.app.isMultiSite and test.siteId %}
+        <p class="light" style="margin-top: -8px;">On the {{ craft.app.sites.getSiteById(test.siteId).name|t('site') }} site. Both entries are chosen from that site.</p>
+    {% endif %}
 
     {{ forms.elementSelectField({
         label: "Control Entry (Original)"|t('abtestcraft'),
@@ -72,6 +78,8 @@
         name: 'controlEntryId',
         elementType: 'craft\\elements\\Entry',
         single: true,
+        criteria: { siteId: test.siteId },
+        showSiteMenu: false,
         elements: controlEntry ? [controlEntry] : [],
         selectionLabel: 'Choose an entry'|t('abtestcraft'),
         required: true,
@@ -100,6 +108,8 @@
         name: 'variantEntryId',
         elementType: 'craft\\elements\\Entry',
         single: true,
+        criteria: { siteId: test.siteId },
+        showSiteMenu: false,
         elements: variantEntry ? [variantEntry] : [],
         selectionLabel: 'Choose an entry'|t('abtestcraft'),
         required: true,

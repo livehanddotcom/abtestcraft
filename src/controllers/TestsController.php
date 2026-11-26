@@ -6,8 +6,10 @@ namespace livehand\abtestcraft\controllers;
 
 use Craft;
 use craft\elements\Entry;
+use craft\helpers\Cp;
 use craft\helpers\DateTimeHelper;
 use craft\helpers\UrlHelper;
+use craft\models\Site;
 use craft\web\Controller;
 use livehand\abtestcraft\models\Test;
 use livehand\abtestcraft\ABTestCraft;
@@ -29,7 +31,8 @@ class TestsController extends Controller
         $this->requirePermission('abtestcraft:viewResults');
 
         $request = Craft::$app->getRequest();
-        $siteId = Craft::$app->getSites()->getCurrentSite()->id;
+        $site = $this->getSelectedSite();
+        $siteId = $site->id;
 
         // Get status filter from query param, default to 'active'
         $statusFilter = $request->getQueryParam('status', 'active');
@@ -61,6 +64,7 @@ class TestsController extends Controller
         }
 
         return $this->renderTemplate('abtestcraft/tests/index', [
+            'site' => $site,
             'tests' => $testsWithStats,
             'statusFilter' => $statusFilter,
             'counts' => $counts,
@@ -92,7 +96,7 @@ class TestsController extends Controller
 
         if ($test === null) {
             $test = new Test();
-            $test->siteId = Craft::$app->getSites()->getCurrentSite()->id;
+            $test->siteId = $this->getSelectedSite()->id;
         }
 
         return $this->renderTemplate('abtestcraft/tests/_form', [
@@ -199,9 +203,13 @@ class TestsController extends Controller
             }
 
             $test = new Test();
-            // Only new tests take the current CP site. Re-saving an existing
+            // Only new tests take a site: the one the form was opened for (or
+            // the site selected in the control panel). Re-saving an existing
             // test with the site switcher on another site mustn't move it.
-            $test->siteId = Craft::$app->getSites()->getCurrentSite()->id;
+            $postedSiteId = (int) $request->getBodyParam('siteId');
+            $test->siteId = in_array($postedSiteId, Craft::$app->getSites()->getEditableSiteIds(), true)
+                ? $postedSiteId
+                : $this->getSelectedSite()->id;
         }
 
         $test->name = $request->getBodyParam('name');
@@ -375,6 +383,17 @@ class TestsController extends Controller
         );
 
         return $this->redirect(UrlHelper::cpUrl('abtestcraft/tests', ['status' => 'trashed']));
+    }
+
+    /**
+     * The site selected in the control panel (the site switcher's `site`
+     * param), or the primary site. Sites::getCurrentSite() is always the
+     * primary site in the control panel, so tests on other sites couldn't be
+     * listed or created.
+     */
+    private function getSelectedSite(): Site
+    {
+        return Cp::requestedSite() ?? Craft::$app->getSites()->getPrimarySite();
     }
 
     /**
