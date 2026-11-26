@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.2] - Unreleased
+## [1.0.2] - 2026-11-26
 
 ### Added
 - Tests can now be deleted from the control panel: **Delete test** on a test's settings page moves it to a new **Trash** tab on the Tests page. Trashed tests stop running and keep their data; from the Trash tab you can restore them or delete them permanently, which also removes their results.
