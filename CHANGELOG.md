@@ -41,7 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed tests in the trash still running: a trashed test no longer swaps variants, records conversions, adds SEO tags, or keeps its pages out of the page cache. Restoring a running test from the trash clears its pages from the Blitz cache.
 - Fixed Freeform form goals in Easy (smart) mode: the success handler threw a JavaScript error on Freeform 5 and never matched selected forms, while any form submit on the page (including failed validation or unrelated forms) was counted instead. AJAX forms are now counted only when Freeform or Formie reports a successful submission of a selected form; page-reload forms are counted when a selected form is submitted and the form plugin didn't cancel the submit (e.g. failed client-side validation). For the most accurate form goals, use AJAX forms. Formie 4 form handles (`data-formie-handle`) are now recognised.
 
-## [1.0.0] - 2025-01-10
+## [1.0.0] - 2026-01-11
 
 ### Added
 - Initial release for Craft CMS 5
@@ -65,5 +65,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rate limiting for conversion tracking
 - User permissions: Manage Tests, View Results
 - Twig variables for template integration
-- Console command for cascade rebuilding
+- Console commands to list tests, show and export results, recalculate stats, and clean up old visitor data
 - Control panel interface for test management and results
