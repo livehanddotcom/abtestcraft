@@ -109,6 +109,8 @@ Configure global settings in **ABTestCraft > Settings**:
 | Conversion Rate Limit | 10/min | Max conversions per IP per test per minute |
 | Conversion Counting | Per Goal Type | How to count multiple conversions |
 | Significance Threshold | 95% | Confidence level to declare significance |
+| Send Significance Email | On | Email when a test reaches significance |
+| Notification Emails | (empty) | Who receives the significance email |
 | Minimum Detectable Effect | 10% | Smallest relative improvement to detect |
 | Enable dataLayer | Off | Push events to GA4/GTM |
 
@@ -144,7 +146,7 @@ Access split test information in your templates via `craft.abtestcraft`:
 
 The plugin registers two permissions:
 
-- **Manage AB tests** (`abtestcraft:manageTests`): Create, edit, start, pause, complete, and delete tests
+- **Manage split tests** (`abtestcraft:manageTests`): Create, edit, start, pause, complete, and delete tests
 - **View test results** (`abtestcraft:viewResults`): View test statistics and results
 
 ## GA4/GTM Integration
@@ -183,9 +185,24 @@ No CSRF token is required, so conversions keep working on cached pages. A conver
 ## Console Commands
 
 ```bash
-# Rebuild cascade mappings (if entries were moved while plugin was disabled)
-./craft abtestcraft/rebuild-cascade
+# List all tests with their ID, status and dates
+./craft abtestcraft/list
+
+# Show results for a test
+./craft abtestcraft/stats <testId>
+
+# Clear the cached stats for a test and recalculate them (--force skips the confirmation)
+./craft abtestcraft/recalculate-stats <testId>
+
+# Delete visitor assignment records older than 90 days from completed tests
+# (--days=<n> changes the age, --force skips the confirmation)
+./craft abtestcraft/cleanup
+
+# Print a test's results as CSV
+./craft abtestcraft/export <testId>
 ```
+
+Test IDs are shown by `abtestcraft/list`. Child-page (cascade) mappings don't need a command: they're rebuilt automatically when a test is saved and when entries under a tested page are moved or added.
 
 ## How It Works
 
@@ -222,21 +239,23 @@ The plugin creates the following tables that should be included in your backup s
 | `abtestcraft_tests` | Test configurations | Low (manual creation) |
 | `abtestcraft_goals` | Goal configurations | Low (tied to tests) |
 | `abtestcraft_visitors` | Visitor assignments | Medium (one per unique visitor per test) |
+| `abtestcraft_visitor_goals` | Which goal types each visitor has converted on (prevents double counting) | Medium (at most one per visitor per goal type per test) |
 | `abtestcraft_daily_stats` | Aggregated statistics | Low (one row per day/variant/goal) |
+| `abtestcraft_test_descendants` | Child pages of each tested page (cascade support) | Low (rebuilt automatically) |
 | `abtestcraft_rate_limits` | Rate limiting cache | Self-cleaning (auto-purges old entries) |
 
 ### Data Retention
 
-- **Visitor data**: Retained indefinitely until test is hard-deleted
+- **Visitor data**: Kept until you remove it. `./craft abtestcraft/cleanup` deletes visitor assignment records from completed tests (older than 90 days by default); impressions, conversions, conversion rates and significance come from the aggregated daily statistics and don't change, but the test's unique visitor counts and confidence intervals will then only reflect the visitors that remain. Deleting a test's records from the database removes all of its visitor data.
 - **Statistics**: Aggregated daily, raw impressions not stored
 - **Completed tests**: Remain in database for historical reference
-- **Trashed tests**: Soft-deleted, can be restored or permanently removed
+- **Deleted tests**: Moved to the trash (soft-deleted); their data stays in the database
 
 ### Archiving Old Data
 
 For high-traffic sites, consider periodically:
-1. Exporting completed test data to your analytics platform
-2. Hard-deleting old tests via **ABTestCraft > Completed > Delete Permanently**
+1. Exporting completed test results (`./craft abtestcraft/export <testId>`) to your analytics platform or records
+2. Running `./craft abtestcraft/cleanup` to remove old visitor records from completed tests (after exporting, since it reduces their visitor counts)
 3. Monitoring the `abtestcraft_rate_limits` table size (auto-cleans but verify)
 
 ### Backup Recommendations
@@ -246,7 +265,9 @@ Include these tables in your database backups:
 abtestcraft_tests
 abtestcraft_goals
 abtestcraft_visitors
+abtestcraft_visitor_goals
 abtestcraft_daily_stats
+abtestcraft_test_descendants
 ```
 
 The `abtestcraft_rate_limits` table is transient and doesn't need to be backed up.
