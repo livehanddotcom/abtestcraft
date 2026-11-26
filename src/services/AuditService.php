@@ -76,8 +76,9 @@ class AuditService extends Component
         $this->log('completed', $test, [
             'winner' => $test->winnerVariant,
             'durationDays' => $test->getDurationDays(),
-            'totalImpressions' => $stats ? ($stats['impressions']['control'] + $stats['impressions']['variant']) : null,
-            'totalConversions' => $stats ? ($stats['conversions']['control'] + $stats['conversions']['variant']) : null,
+            'totalVisitors' => $stats['totalVisitors'] ?? null,
+            'totalPageViews' => $stats ? array_sum($stats['pageViews']) : null,
+            'convertedVisitors' => $stats ? array_sum($stats['convertedVisitors']) : null,
             'confidence' => $stats['confidence'] ?? null,
         ]);
     }

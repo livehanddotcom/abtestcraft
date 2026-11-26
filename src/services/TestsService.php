@@ -7,6 +7,8 @@ namespace livehand\abtestcraft\services;
 use Craft;
 use craft\base\Component;
 use craft\db\Query;
+use craft\elements\Entry;
+use craft\helpers\DateTimeHelper;
 use livehand\abtestcraft\models\Test;
 use livehand\abtestcraft\records\TestRecord;
 use livehand\abtestcraft\ABTestCraft;
@@ -226,6 +228,12 @@ class TestsService extends Component
             return false;
         }
 
+        // A page can only be in one running test at a time
+        if ($test->isRunning() && ($overlapping = $this->getOverlappingRunningTest($test))) {
+            $test->addError('controlEntryId', $this->overlapMessage($overlapping));
+            return false;
+        }
+
         if ($test->id) {
             $record = TestRecord::findOne($test->id);
             if (!$record) {
@@ -258,6 +266,7 @@ class TestsService extends Component
         $record->trafficSplit = $test->trafficSplit;
         $record->goalType = $test->goalType;
         $record->goalValue = $test->goalValue;
+        $record->primaryGoalType = $test->primaryGoalType;
         $record->startedAt = $test->startedAt;
         $record->endedAt = $test->endedAt;
         $record->winnerVariant = $test->winnerVariant;
@@ -268,8 +277,8 @@ class TestsService extends Component
         }
 
         $test->id = (int) $record->id;
-        $test->dateCreated = new DateTime($record->dateCreated);
-        $test->dateUpdated = new DateTime($record->dateUpdated);
+        $test->dateCreated = self::dbDate($record->dateCreated);
+        $test->dateUpdated = self::dbDate($record->dateUpdated);
         $test->uid = $record->uid;
 
         // A running test's pages must not be served from a full-page cache
@@ -289,6 +298,75 @@ class TestsService extends Component
         }
 
         return true;
+    }
+
+    /**
+     * Another running test that covers this test's page: the same control
+     * entry, or one test's page being a child page of the other's. Only one
+     * test can run on a page; otherwise one of them silently gets no traffic.
+     */
+    public function getOverlappingRunningTest(Test $test): ?Test
+    {
+        if (!$test->controlEntryId) {
+            return null;
+        }
+
+        $query = TestRecord::find()
+            ->where(['status' => Test::STATUS_RUNNING, 'dateDeleted' => null])
+            ->andWhere(['siteId' => $test->siteId ?? Craft::$app->getSites()->getCurrentSite()->id]);
+        if ($test->id) {
+            $query->andWhere(['not', ['id' => $test->id]]);
+        }
+
+        /** @var TestRecord[] $others */
+        $others = $query->all();
+        if ($others === []) {
+            return null;
+        }
+
+        $byControl = [];
+        foreach ($others as $record) {
+            if ((int) $record->controlEntryId === (int) $test->controlEntryId) {
+                return $this->createModelFromRecord($record);
+            }
+            $byControl[(int) $record->controlEntryId] = $record;
+        }
+
+        // This page is a child page of another running test's page
+        $parentTestId = (new Query())
+            ->select(['testId'])
+            ->from('{{%abtestcraft_test_descendants}}')
+            ->where([
+                'descendantEntryId' => $test->controlEntryId,
+                'testId' => array_map(fn(TestRecord $record) => (int) $record->id, $others),
+            ])
+            ->scalar();
+        if ($parentTestId) {
+            foreach ($others as $record) {
+                if ((int) $record->id === (int) $parentTestId) {
+                    return $this->createModelFromRecord($record);
+                }
+            }
+        }
+
+        // Another running test's page is a child page of this one
+        $childIds = Entry::find()
+            ->descendantOf($test->controlEntryId)
+            ->id(array_keys($byControl))
+            ->siteId($test->siteId)
+            ->status(null)
+            ->ids();
+        if ($childIds !== []) {
+            return $this->createModelFromRecord($byControl[(int) $childIds[0]]);
+        }
+
+        return null;
+    }
+
+    private function overlapMessage(Test $overlapping): string
+    {
+        return "This page is already part of the running test \"{$overlapping->name}\". "
+            . 'Pause or complete that test first: a page can only be in one running test at a time.';
     }
 
     /**
@@ -347,7 +425,7 @@ class TestsService extends Component
             return false;
         }
 
-        $test->dateDeleted = new DateTime($record->dateDeleted);
+        $test->dateDeleted = self::dbDate($record->dateDeleted);
 
         Craft::info("Split test '{$test->handle}' (ID: {$test->id}) moved to trash", 'abtestcraft');
 
@@ -438,6 +516,10 @@ class TestsService extends Component
             return 'At least one conversion goal must be enabled before starting the test.';
         }
 
+        if ($overlapping = $this->getOverlappingRunningTest($test)) {
+            return $this->overlapMessage($overlapping);
+        }
+
         $test->status = Test::STATUS_RUNNING;
         $test->startedAt = new DateTime();
 
@@ -498,6 +580,23 @@ class TestsService extends Component
     }
 
     /**
+     * A date read from the database. Craft stores dates in UTC; parsing them
+     * with `new DateTime()` read them as the site's local time, so tests looked
+     * hours younger or older than they were (and dates showed shifted).
+     */
+    private static function dbDate(mixed $value): ?DateTime
+    {
+        if ($value instanceof DateTime) {
+            return $value;
+        }
+        if (!$value) {
+            return null;
+        }
+
+        return DateTimeHelper::toDateTime($value) ?: null;
+    }
+
+    /**
      * Create model from record
      */
     private function createModelFromRecord(TestRecord $record): Test
@@ -518,17 +617,16 @@ class TestsService extends Component
         $test->trafficSplit = (int) $record->trafficSplit;
         $test->goalType = $record->goalType;
         $test->goalValue = $record->goalValue;
-        $test->startedAt = $record->startedAt ? new DateTime($record->startedAt) : null;
-        $test->endedAt = $record->endedAt ? new DateTime($record->endedAt) : null;
+        $test->primaryGoalType = $record->primaryGoalType ?: null;
+        $test->startedAt = self::dbDate($record->startedAt);
+        $test->endedAt = self::dbDate($record->endedAt);
         $test->winnerVariant = $record->winnerVariant;
         // Needed by NotificationService's cooldown; without it every conversion
         // on a significant test sent another significance email
-        $test->significanceNotifiedAt = $record->significanceNotifiedAt
-            ? new DateTime($record->significanceNotifiedAt)
-            : null;
-        $test->dateCreated = new DateTime($record->dateCreated);
-        $test->dateUpdated = new DateTime($record->dateUpdated);
-        $test->dateDeleted = $record->dateDeleted ? new DateTime($record->dateDeleted) : null;
+        $test->significanceNotifiedAt = self::dbDate($record->significanceNotifiedAt);
+        $test->dateCreated = self::dbDate($record->dateCreated);
+        $test->dateUpdated = self::dbDate($record->dateUpdated);
+        $test->dateDeleted = self::dbDate($record->dateDeleted);
         $test->uid = $record->uid;
 
         return $test;

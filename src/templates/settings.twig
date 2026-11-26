@@ -72,6 +72,26 @@
 
 <hr>
 
+<h2>Who's Counted</h2>
+
+{{ forms.lightswitchField({
+    label: "Exclude Bots"|t('abtestcraft'),
+    instructions: "Known bots, crawlers, link previews and monitoring services see the control and aren't counted. Bots don't keep cookies, so without this each of their requests counts as a new visitor."|t('abtestcraft'),
+    id: 'excludeBots',
+    name: 'excludeBots',
+    on: settings.excludeBots,
+}) }}
+
+{{ forms.lightswitchField({
+    label: "Exclude Control Panel Users"|t('abtestcraft'),
+    instructions: "People logged in with control panel access see the control and aren't counted, so editors checking their own pages don't skew results. To see a variant on the real page, add `?abtestcraft=variant` (or `?abtestcraft=control`) to its URL while logged in; those views are never counted."|t('abtestcraft'),
+    id: 'excludeControlPanelUsers',
+    name: 'excludeControlPanelUsers',
+    on: settings.excludeControlPanelUsers,
+}) }}
+
+<hr>
+
 <h2>Rate Limiting</h2>
 
 {{ forms.textField({
@@ -120,7 +140,7 @@
 
 {{ forms.lightswitchField({
     label: "Send Significance Email"|t('abtestcraft'),
-    instructions: "Send an email when a test reaches statistical significance."|t('abtestcraft'),
+    instructions: "Send an email when a test has a winner: it's statistically significant, has reached its planned sample size and has run the minimum number of days."|t('abtestcraft'),
     id: 'sendSignificanceEmail',
     name: 'sendSignificanceEmail',
     on: settings.sendSignificanceEmail,
@@ -146,6 +166,18 @@
     max: 0.99,
     value: settings.significanceThreshold,
     errors: settings.getErrors('significanceThreshold'),
+}) }}
+
+{{ forms.textField({
+    label: "Minimum Test Duration (Days)"|t('abtestcraft'),
+    instructions: "A winner is only called once a test has run this many days and reached its planned sample size, so weekday and weekend visitors are both included and an early lucky streak isn't mistaken for a result. Until then, the confidence shown is provisional."|t('abtestcraft'),
+    id: 'minimumTestDays',
+    name: 'minimumTestDays',
+    type: 'number',
+    min: 0,
+    max: 90,
+    value: settings.minimumTestDays,
+    errors: settings.getErrors('minimumTestDays'),
 }) }}
 
 <div class="field">

@@ -922,6 +922,10 @@ class TestsServiceIntegrationTest extends Unit
         $test = $this->service->getTestById($record->id);
 
         $this->assertNotNull($test->significanceNotifiedAt);
-        $this->assertSame('2026-01-02 03:04:05', $test->significanceNotifiedAt->format('Y-m-d H:i:s'));
+        // Stored in UTC, like every Craft date
+        $this->assertSame(
+            '2026-01-02 03:04:05',
+            (clone $test->significanceNotifiedAt)->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s')
+        );
     }
 }

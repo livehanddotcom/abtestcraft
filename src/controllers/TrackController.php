@@ -74,9 +74,20 @@ class TrackController extends Controller
 
         Craft::debug("Conversion request: test={$testHandle}, type={$conversionType}", 'abtestcraft');
 
+        // Bots and control panel users aren't counted (see VisitorFilterService)
+        if (ABTestCraft::getInstance()->visitorFilter->shouldExcludeRequest()) {
+            return $this->asJson(['success' => false]);
+        }
+
+        // Only assigned visitors can convert. Reading the ID without creating
+        // one means a request from anyone else doesn't hand them a cookie.
+        $visitorId = ABTestCraft::getInstance()->assignment->getVisitorId();
+        if ($visitorId === null) {
+            return $this->asJson(['success' => false]);
+        }
+
         // Rate limiting - combine IP + visitor ID for stronger protection
         $ip = $request->getUserIP();
-        $visitorId = ABTestCraft::getInstance()->assignment->getOrCreateVisitorId();
 
         // Support Cloudflare's CF-Connecting-IP header
         $cfIp = $request->getHeaders()->get('CF-Connecting-IP');
@@ -115,7 +126,7 @@ class TrackController extends Controller
 
         // Never create a visitor ID here: only assigned visitors can convert
         $visitorId = ABTestCraft::getInstance()->assignment->getVisitorId();
-        if ($visitorId === null) {
+        if ($visitorId === null || ABTestCraft::getInstance()->visitorFilter->shouldExcludeRequest()) {
             return $this->asJson(['success' => false]);
         }
 

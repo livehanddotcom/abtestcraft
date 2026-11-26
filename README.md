@@ -9,7 +9,8 @@ A/B testing for Craft CMS 5 - test page variations and track conversions with st
 - **Server-Side Testing**: No page flicker. Visitors are assigned variants before the page renders
 - **Entry-Based Variants**: Use Craft's native entry system - test entire pages, not just CSS tweaks
 - **Multi-Goal Tracking**: Track multiple conversion types per test (forms, phone clicks, emails, downloads, page visits)
-- **Statistical Significance**: Chi-squared test with configurable confidence threshold (80-99%)
+- **Trustworthy Results**: Per-visitor conversion rates on a primary goal, a chi-squared test with a configurable confidence threshold (80-99%), and no winner called until the test has reached its planned sample size and minimum duration
+- **Clean Data**: Bots, crawlers, logged-in editors and previews are left out automatically, and a warning shows when visitors aren't split as configured
 - **Smart Form Tracking**: Native integration with Freeform and Formie plugins
 - **GA4/GTM Integration**: Push events to dataLayer for analytics tracking
 - **SEO Protection**: Automatic noindex/canonical tags on variant entries
@@ -55,11 +56,13 @@ Create two entries in Craft CMS:
 ### 3. View Results
 
 Results update in real-time as visitors convert. The plugin calculates:
-- Conversion rates per variant
-- Statistical significance (Chi-squared test)
-- Confidence level
+- Conversion rates per variant: the share of visitors who completed the test's primary goal
+- Statistical significance (Chi-squared test) and confidence level
 - Relative improvement percentage
-- Estimated days to significance
+- The planned sample size, and how many more days until a result can be called
+- A breakdown for every goal
+
+See [How Results Are Calculated](#how-results-are-calculated).
 
 ## Goal Types
 
@@ -108,10 +111,34 @@ Configure global settings in **ABTestCraft > Settings**:
 | Conversion Rate Limit | 10/min | Max conversions per IP per test per minute |
 | Conversion Counting | Per Goal Type | How to count multiple conversions |
 | Significance Threshold | 95% | Confidence level to declare significance |
+| Minimum Test Duration | 7 days | Days a test must run before a winner is called |
 | Send Significance Email | On | Email when a test reaches significance |
 | Notification Emails | (empty) | Who receives the significance email |
 | Minimum Detectable Effect | 10% | Smallest relative improvement to detect |
 | Enable dataLayer | Off | Push events to GA4/GTM |
+| Exclude Bots | On | Known bots and crawlers see the control and aren't counted |
+| Exclude Control Panel Users | On | People logged in with control panel access see the control and aren't counted |
+
+Each test also has a **Primary Goal** (on its settings page): the goal its result is judged on. "Any goal" (the default) counts a visitor who completed any of the test's enabled goals.
+
+## How Results Are Calculated
+
+- **Per visitor.** A version's conversion rate is the share of its visitors who completed the primary goal at least once. Each visitor counts once, however many pages they view or times they convert, which is what the significance test assumes. Page views and raw conversion counts are shown alongside, but don't decide the result.
+- **Primary goal.** With several goals, choose the one that matters most as the test's primary goal; the others are still reported in the goal breakdown. "Any goal" counts a visitor who completed any enabled goal.
+- **No early calls.** A winner is only called once each version has reached the planned sample size (worked out from the control's conversion rate, the Minimum Detectable Effect and the Significance Threshold, with 80% power) **and** the test has run the Minimum Test Duration. Until then the confidence is shown as provisional, and no significance email is sent. Checking results repeatedly and stopping the first time they look significant is the most common way A/B tests produce false winners.
+- **No significant difference** once the sample is reached means the change didn't make a measurable difference: either version is a reasonable choice.
+- **Split check.** If visitors split noticeably differently from the traffic split (for example 60/40 on a 50/50 test), the results page warns you: a page cache, redirect or bot traffic is usually affecting one version, which makes the comparison unreliable.
+- **Conversion Counting** (in the settings) only changes the raw conversion totals, not the result.
+
+## Who's Counted
+
+Only real visitors take part in tests. These see the control, get no cookies and aren't counted:
+
+- **Bots**: search engine crawlers, link previews (Slack, Facebook and the like), uptime monitors, headless browsers and HTTP libraries such as curl. Bots don't keep cookies, so otherwise each request would count as a new visitor. Turn off with **Exclude Bots**.
+- **Control panel users**: anyone logged in with control panel access, so editors checking their own pages don't skew results. Turn off with **Exclude Control Panel Users**.
+- **Previews**: Live Preview and shared preview links.
+
+To see a variant on the real page while logged in, add `?abtestcraft=variant` (or `?abtestcraft=control`) to the tested page's URL. Those views are never counted, and the parameter is ignored for visitors who aren't logged in.
 
 ## Twig Variables
 
@@ -179,7 +206,7 @@ Parameters:
 - `conversionType` (string, required): phone, email, form, download, page, or custom
 - `goalId` (int, optional): Specific goal ID
 
-No CSRF token is required, so conversions keep working on cached pages. A conversion is only recorded for a visitor who was assigned a variant (identified by their first-party cookie), and the endpoint is rate limited. Easy-mode form goals are counted on the server instead, so `form` reports for them are ignored.
+No CSRF token is required, so conversions keep working on cached pages. A conversion is only recorded for a visitor who was assigned a variant (identified by their first-party cookie), requests from bots and logged-in control panel users are ignored, and the endpoint is rate limited. Easy-mode form goals are counted on the server instead, so `form` reports for them are ignored.
 
 ### Record Page Visit
 
@@ -199,17 +226,17 @@ Sent by the page-visit beacon. Records page-visit goals for the requesting visit
 ./craft abtestcraft/tests/list
 
 # Show results for a test
-./craft abtestcraft/tests/stats <testId>
+./craft abtestcraft/tests/stats <testId or handle>
 
 # Clear the cached stats for a test and recalculate them (--force skips the confirmation)
-./craft abtestcraft/tests/recalculate-stats <testId>
+./craft abtestcraft/tests/recalculate-stats <testId or handle>
 
 # Delete visitor assignment records older than 90 days from completed tests
 # (--days=<n> changes the age, --force skips the confirmation)
 ./craft abtestcraft/tests/cleanup
 
-# Print a test's results as CSV
-./craft abtestcraft/tests/export <testId>
+# Print a test's results as CSV (only the CSV goes to standard output)
+./craft abtestcraft/tests/export <testId or handle> > results.csv
 ```
 
 Test IDs are shown by `abtestcraft/tests/list`. Before 1.0.2 the commands were `./craft abtestcraft/a-b-test-craft/<command>`; that form still works. Child-page (cascade) mappings don't need a command: they're rebuilt automatically when a test is saved and when entries under a tested page are moved or added.
@@ -224,8 +251,8 @@ Test IDs are shown by `abtestcraft/tests/list`. Before 1.0.2 the commands were `
 ### How page-visit goals are counted
 
 When a visitor is assigned to a test, they also get a `_abtestcraft_on=1` cookie. It holds no data and is readable by JavaScript. Every front-end page includes a small beacon script that's identical for every visitor, so it's safe on cached pages. For visitors with that cookie, the beacon sends the page URL to `/actions/abtestcraft/track/page`, and the server records any page-visit goal it matches for the tests that visitor is in. That's one extra small request per page view, only for visitors who've been in a test. Pages are matched on their path; the query string is ignored.
-5. **Statistics**: Chi-squared test calculates statistical significance
-6. **Notification**: Email sent when test reaches significance threshold
+5. **Statistics**: per-visitor conversion rates on the primary goal, with a chi-squared test once the planned sample and minimum duration are reached (see [How Results Are Calculated](#how-results-are-calculated))
+6. **Notification**: Email sent when a test has a winner
 
 ## Trial
 
@@ -262,7 +289,7 @@ The plugin creates the following tables that should be included in your backup s
 
 ### Data Retention
 
-- **Visitor data**: Kept until you remove it. `./craft abtestcraft/tests/cleanup` deletes visitor assignment records from completed tests (older than 90 days by default); impressions, conversions, conversion rates and significance come from the aggregated daily statistics and don't change, but the test's unique visitor counts and confidence intervals will then only reflect the visitors that remain. Permanently deleting a test removes all of its visitor data and results.
+- **Visitor data**: Kept until you remove it. `./craft abtestcraft/tests/cleanup` deletes visitor assignment records from completed tests (older than 90 days by default). Results come from the aggregated daily statistics, so they don't change. Permanently deleting a test removes all of its visitor data and results.
 - **Statistics**: Aggregated daily, raw impressions not stored
 - **Completed tests**: Remain in database for historical reference
 - **Deleted tests**: **Delete test** (on a test's settings page) moves it to the **Trash** tab, where it stops running and its data is kept. From there you can **Restore** it (a test that was running comes back paused) or **Delete permanently**, which removes the test and all its results and can't be undone.
@@ -271,7 +298,7 @@ The plugin creates the following tables that should be included in your backup s
 
 For high-traffic sites, consider periodically:
 1. Exporting completed test results (`./craft abtestcraft/tests/export <testId>`) to your analytics platform or records
-2. Running `./craft abtestcraft/tests/cleanup` to remove old visitor records from completed tests (after exporting, since it reduces their visitor counts), or deleting tests you no longer need and then deleting them permanently from the Trash tab
+2. Running `./craft abtestcraft/tests/cleanup` to remove old visitor records from completed tests (their results don't change), or deleting tests you no longer need and then deleting them permanently from the Trash tab
 3. Monitoring the `abtestcraft_rate_limits` table size (auto-cleans but verify)
 
 ### Backup Recommendations
@@ -291,19 +318,22 @@ The `abtestcraft_rate_limits` table is transient and doesn't need to be backed u
 ## Best Practices
 
 ### Test Duration
-- Run tests for at least 7 days to account for weekly traffic patterns
-- Wait for statistical significance before declaring a winner
-- Don't peek and stop early - this inflates false positive rate
+- Run tests for at least 7 days to account for weekly traffic patterns (the Minimum Test Duration setting enforces this)
+- Wait until the results page calls a result before declaring a winner; until then the confidence is provisional
+- Don't stop a test the first time it looks significant: early differences often disappear
 
 ### Traffic Requirements
-Sample size needed depends on your baseline conversion rate and minimum detectable effect:
-- 5% baseline, 10% MDE: ~3,000 visitors per variant
-- 2% baseline, 10% MDE: ~8,000 visitors per variant
+Sample size needed depends on your baseline conversion rate and minimum detectable effect (at 95% confidence and 80% power):
+- 10% baseline, 20% MDE: ~3,800 visitors per variant
+- 5% baseline, 10% MDE: ~31,000 visitors per variant
+- 2% baseline, 10% MDE: ~81,000 visitors per variant
+
+Low-traffic sites should use a larger Minimum Detectable Effect (20-25%) and test bigger changes.
 
 ### Goals
 - Track the metric that matters most to your business
+- With several goals, set the test's Primary Goal to the one that matters most
 - Enable one goal type per test for clearest results
-- Use "Per Goal Type" counting for multi-goal tests
 
 ## Support
 

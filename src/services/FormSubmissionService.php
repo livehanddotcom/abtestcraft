@@ -203,6 +203,11 @@ class FormSubmissionService extends Component
             return;
         }
 
+        // Bots and control panel users aren't counted (see VisitorFilterService)
+        if (ABTestCraft::getInstance()->visitorFilter->shouldExcludeRequest()) {
+            return;
+        }
+
         try {
             $pageUrls = array_values(array_filter([
                 $request->getReferrer(),

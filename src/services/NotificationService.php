@@ -6,6 +6,8 @@ namespace livehand\abtestcraft\services;
 
 use Craft;
 use craft\base\Component;
+use craft\helpers\Db;
+use craft\helpers\UrlHelper;
 use DateTime;
 use livehand\abtestcraft\models\Test;
 use livehand\abtestcraft\records\TestRecord;
@@ -46,7 +48,7 @@ class NotificationService extends Component
             ? 'Variant'
             : 'Control';
 
-        $subject = "Split Test '{$test->name}' has reached statistical significance";
+        $subject = "Split Test '{$test->name}' has a winner: {$winner}";
 
         $body = $this->buildSignificanceEmailBody($test, $stats, $winner);
 
@@ -83,8 +85,8 @@ class NotificationService extends Component
      */
     private function buildSignificanceEmailBody(Test $test, array $stats, string $winner): string
     {
-        $baseUrl = Craft::$app->getSites()->getCurrentSite()->getBaseUrl();
-        $resultsUrl = rtrim($baseUrl, '/') . "/admin/abtestcraft/tests/{$test->id}/results";
+        // Respects the site's control panel path (it isn't always /admin)
+        $resultsUrl = UrlHelper::cpUrl("abtestcraft/tests/{$test->id}/results");
 
         $controlRate = (float) $stats['conversionRates']['control'];
         $variantRate = (float) $stats['conversionRates']['variant'];
@@ -99,20 +101,24 @@ class NotificationService extends Component
         $absoluteDiff = $variantRate - $controlRate;
         $absoluteDiffFormatted = ($absoluteDiff >= 0 ? '+' : '') . number_format($absoluteDiff, 2) . ' pp';
 
-        $body = "Your split test '{$test->name}' has reached statistical significance!\n\n";
+        $body = "Your split test '{$test->name}' has a result you can act on.\n\n";
 
         $body .= "WINNER: {$winner}\n";
-        $body .= "Confidence: " . number_format($stats['confidence'] * 100, 1) . "%\n\n";
+        $body .= "Confidence: " . number_format($stats['confidence'] * 100, 1) . "%\n";
+        $body .= "Primary goal: {$stats['primaryGoalLabel']}\n\n";
 
         $body .= "PERFORMANCE\n";
         $body .= "Relative lift: {$relativeLiftFormatted}\n";
         $body .= "Absolute lift: {$absoluteDiffFormatted}\n\n";
 
-        $body .= "CONVERSION RATES\n";
+        $body .= "CONVERSION RATES (visitors who converted / visitors)\n";
         $body .= "Control: {$stats['conversionRates']['control']}% ";
-        $body .= "({$stats['conversions']['control']}/{$stats['impressions']['control']})\n";
+        $body .= "({$stats['convertedVisitors']['control']}/{$stats['visitors']['control']})\n";
         $body .= "Variant: {$stats['conversionRates']['variant']}% ";
-        $body .= "({$stats['conversions']['variant']}/{$stats['impressions']['variant']})\n\n";
+        $body .= "({$stats['convertedVisitors']['variant']}/{$stats['visitors']['variant']})\n\n";
+
+        $body .= "The test has reached its planned sample of {$stats['sampleSizeNeeded']} visitors per version ";
+        $body .= "and has run for {$stats['daysRunning']} days.\n\n";
 
         $body .= "View full results: {$resultsUrl}";
 
@@ -176,7 +182,9 @@ class NotificationService extends Component
         }
 
         try {
-            $now = (new DateTime())->format('Y-m-d H:i:s');
+            // Stored in UTC like every Craft date, so it reads back correctly
+            $nowDate = new DateTime();
+            $now = Db::prepareDateForDb($nowDate);
 
             Craft::$app->getDb()->createCommand()
                 ->update(
@@ -187,7 +195,7 @@ class NotificationService extends Component
                 ->execute();
 
             // Update the model instance too
-            $test->significanceNotifiedAt = new DateTime($now);
+            $test->significanceNotifiedAt = $nowDate;
         } catch (\Throwable $e) {
             Craft::error(
                 "Failed to update significance notification timestamp for test '{$test->handle}': " . $e->getMessage(),

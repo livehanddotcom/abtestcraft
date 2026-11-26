@@ -16,6 +16,9 @@ use yii\db\ActiveQueryInterface;
  * @property string $variant
  * @property int $impressions
  * @property int $conversions
+ * @property int $visitors
+ * @property int $convertedVisitors
+ * @property string|null $goalType
  * @property \DateTime $dateCreated
  * @property \DateTime $dateUpdated
  * @property string $uid

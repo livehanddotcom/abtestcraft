@@ -90,7 +90,9 @@ class AssignmentService extends Component
         $record->variant = $visitor->variant;
         $record->converted = false;
 
-        if (!$record->save()) {
+        if ($record->save()) {
+            ABTestCraft::getInstance()->tracking->recordNewVisitor($test, $variant);
+        } else {
             $errorMsg = "Failed to save visitor assignment for test {$test->id}: " .
                 json_encode($record->getErrors());
             Craft::error($errorMsg, __METHOD__);
