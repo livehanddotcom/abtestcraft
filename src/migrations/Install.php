@@ -54,6 +54,8 @@ class Install extends Migration
             'trafficSplit' => $this->integer()->notNull()->defaultValue(50), // 0-100 percentage to variant
             'goalType' => $this->string(50)->notNull(), // phone, form, page, email, download
             'goalValue' => $this->string(500)->null(), // URL for page visit goal, or file extension patterns
+            // From m261126_000001: the goal results are judged on (null = any goal)
+            'primaryGoalType' => $this->string(50)->null(),
             'startedAt' => $this->dateTime()->null(),
             'endedAt' => $this->dateTime()->null(),
             'winnerVariant' => $this->string(20)->null(), // control, variant, or null
@@ -102,6 +104,10 @@ class Install extends Migration
             'goalType' => $this->string(50)->null(),
             'impressions' => $this->integer()->notNull()->defaultValue(0),
             'conversions' => $this->integer()->notNull()->defaultValue(0),
+            // From m261126_000001: visitors assigned that day (goalType null row), and visitors
+            // whose first conversion of that goal type (or any type, on the null row) was that day
+            'visitors' => $this->integer()->notNull()->defaultValue(0),
+            'convertedVisitors' => $this->integer()->notNull()->defaultValue(0),
             'dateCreated' => $this->dateTime()->notNull(),
             'dateUpdated' => $this->dateTime()->notNull(),
             'uid' => $this->uid(),
@@ -132,9 +138,9 @@ class Install extends Migration
             'uid' => $this->uid(),
         ]);
 
-        // One row per counted conversion slot (from m261125_000002_add_visitor_goals_table):
-        // goalType per goal type, or '*' in first-conversion-only mode. The unique index makes
-        // de-duplication atomic.
+        // One row per visitor per goal type they converted on, plus '*' for their first conversion
+        // of any type (from m261125_000002_add_visitor_goals_table; every mode since 1.2.0). The
+        // unique index makes de-duplication atomic.
         $this->createTable('{{%abtestcraft_visitor_goals}}', [
             'id' => $this->primaryKey(),
             'testId' => $this->integer()->notNull(),

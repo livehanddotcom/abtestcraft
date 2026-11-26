@@ -31,6 +31,7 @@ use livehand\abtestcraft\services\GoalsService;
 use livehand\abtestcraft\services\NotificationService;
 use livehand\abtestcraft\services\PageCacheService;
 use livehand\abtestcraft\services\PageVisitService;
+use livehand\abtestcraft\services\VisitorFilterService;
 use livehand\abtestcraft\services\RoutingService;
 use livehand\abtestcraft\services\SeoService;
 use livehand\abtestcraft\services\StatsService;
@@ -64,10 +65,11 @@ use yii\base\Event;
  * @property LicenseService $license
  * @property PageCacheService $pageCache
  * @property PageVisitService $pageVisits
+ * @property VisitorFilterService $visitorFilter
  */
 class ABTestCraft extends BasePlugin
 {
-    public string $schemaVersion = '1.4.2';
+    public string $schemaVersion = '1.5.0';
     public bool $hasCpSettings = true;
     public bool $hasCpSection = true;
 
@@ -90,6 +92,7 @@ class ABTestCraft extends BasePlugin
                 'license' => LicenseService::class,
                 'pageCache' => PageCacheService::class,
                 'pageVisits' => PageVisitService::class,
+                'visitorFilter' => VisitorFilterService::class,
             ],
         ];
     }
@@ -282,7 +285,8 @@ class ABTestCraft extends BasePlugin
 
         $script = $this->pageVisits->getBeaconScript() . "\n";
 
-        if ($this->routing->hasActiveTest()) {
+        // An editor previewing a variant (?abtestcraft=variant) isn't tracked
+        if ($this->routing->hasActiveTest() && !$this->routing->isEditorPreview()) {
             $script .= $this->getTrackingScript() ?? '';
         }
 

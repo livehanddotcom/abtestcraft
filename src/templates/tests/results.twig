@@ -141,6 +141,15 @@
             color: #64748b;
             font-size: 13px;
         }
+        .st-warning {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            border-radius: 8px;
+            color: #991b1b;
+            padding: 16px 20px;
+            margin-bottom: 24px;
+            line-height: 1.5;
+        }
         .st-lift-positive { color: var(--st-green); font-weight: 600; }
         .st-lift-negative { color: var(--st-red); font-weight: 600; }
     </style>
@@ -201,8 +210,9 @@
                         </h2>
                         {% if timeEstimate and not timeEstimate.reached %}
                             <p class="light" style="margin: 8px 0 0;">
-                                Estimated {{ timeEstimate.daysRemaining }} days to reach significance
-                                ({{ timeEstimate.currentImpressions }}/{{ timeEstimate.impressionsNeeded }} impressions)
+                                About {{ timeEstimate.daysRemaining }} more day{{ timeEstimate.daysRemaining != 1 ? 's' }} until a result can be called
+                                ({{ timeEstimate.currentVisitors }}/{{ timeEstimate.visitorsNeeded }} visitors,
+                                day {{ stats.daysRunning }} of at least {{ stats.minimumDays }})
                             </p>
                         {% endif %}
                     </div>
@@ -234,6 +244,18 @@
             {% endif %}
         </div>
 
+        {# Sample ratio mismatch: the split itself is off #}
+        {% if stats.srm and stats.srm.detected %}
+            <div class="st-warning">
+                <strong>Visitors aren't split as configured.</strong>
+                {{ stats.srm.actualVariantPercent }}% of visitors are seeing the variant, but the test sends
+                {{ stats.srm.expectedVariantPercent }}% there. A gap this large is very unlikely by chance, so the
+                results may be unreliable. Common causes are a page cache serving one version, redirects that
+                only affect one version, or bot traffic. If you changed the traffic split during the test, this
+                is expected.
+            </div>
+        {% endif %}
+
         {# Summary Card #}
         <div class="st-summary-card">
             <p>
@@ -243,20 +265,30 @@
                 {% elseif stats.isSignificant %}
                     After <strong>{{ daysRunning }} day{{ daysRunning != 1 ? 's' }}</strong> and <strong>{{ stats.totalVisitors }} visitors</strong>,
                     the <strong>{{ stats.winner|capitalize }}</strong> is winning with
-                    <strong>{{ stats.improvement > 0 ? '+' }}{{ stats.improvement }}%</strong> improvement.
+                    <strong>{{ stats.improvement > 0 ? '+' }}{{ stats.improvement }}%</strong> improvement
+                    on {{ stats.primaryGoalLabel|lower }}.
                     Results are statistically significant at <strong>{{ (stats.confidence * 100)|number_format(1) }}%</strong> confidence.
+                {% elseif stats.verdictReady %}
+                    After <strong>{{ daysRunning }} day{{ daysRunning != 1 ? 's' }}</strong> and <strong>{{ stats.totalVisitors }} visitors</strong>,
+                    the test has reached its planned sample, and there's <strong>no significant difference</strong>
+                    between the versions on {{ stats.primaryGoalLabel|lower }}.
+                    Either version is a reasonable choice: the change didn't make a measurable difference.
                 {% else %}
                     After <strong>{{ daysRunning }} day{{ daysRunning != 1 ? 's' }}</strong> and <strong>{{ stats.totalVisitors }} visitors</strong>,
                     {% if stats.improvement > 0 %}
-                        the Variant is showing a <strong>+{{ stats.improvement }}%</strong> improvement
+                        the Variant is ahead by <strong>+{{ stats.improvement }}%</strong>
                     {% elseif stats.improvement < 0 %}
-                        Control is outperforming Variant by <strong>{{ stats.improvement|abs }}%</strong>
+                        the Control is ahead by <strong>{{ stats.improvement|abs }}%</strong>
                     {% else %}
-                        both variants are performing similarly
+                        both versions are performing similarly
                     {% endif %}
-                    but results are <strong>not yet statistically significant</strong>.
+                    so far, but it's <strong>too early to call</strong>.
+                    Early differences often disappear, so wait until the test reaches
+                    {% if not stats.sampleReached %}its planned sample of {{ stats.sampleSizeNeeded }} visitors per version{% endif %}
+                    {% if not stats.sampleReached and not stats.durationReached %}and{% endif %}
+                    {% if not stats.durationReached %}at least {{ stats.minimumDays }} days{% endif %}.
                     {% if timeEstimate and not timeEstimate.reached %}
-                        Continue testing for approximately <strong>{{ timeEstimate.daysRemaining }} more day{{ timeEstimate.daysRemaining != 1 ? 's' }}</strong>.
+                        That's about <strong>{{ timeEstimate.daysRemaining }} more day{{ timeEstimate.daysRemaining != 1 ? 's' }}</strong> at the current traffic.
                     {% endif %}
                 {% endif %}
             </p>
@@ -270,7 +302,7 @@
                 <div class="st-big-number neutral">
                     {{ stats.conversionRates.control }}%
                 </div>
-                <div class="st-stat-label">Conversion Rate</div>
+                <div class="st-stat-label">Conversion rate: {{ stats.primaryGoalLabel|lower }}</div>
                 {% if stats.confidenceIntervals.control.margin > 0 %}
                     <div class="st-confidence-interval">
                         &plusmn;{{ stats.confidenceIntervals.control.margin }}%
@@ -281,19 +313,19 @@
                 <div class="st-stat-grid">
                     <div class="st-stat-item">
                         <div class="st-stat-value">{{ stats.visitors.control }}</div>
-                        <div class="st-stat-label">Unique Visitors</div>
+                        <div class="st-stat-label">Visitors</div>
                     </div>
                     <div class="st-stat-item">
-                        <div class="st-stat-value">{{ stats.impressions.control }}</div>
-                        <div class="st-stat-label">Impressions</div>
+                        <div class="st-stat-value">{{ stats.convertedVisitors.control }}</div>
+                        <div class="st-stat-label">Converted</div>
                     </div>
                     <div class="st-stat-item">
-                        <div class="st-stat-value">{{ stats.conversions.control }}</div>
-                        <div class="st-stat-label">Conversions</div>
+                        <div class="st-stat-value">{{ stats.pageViews.control }}</div>
+                        <div class="st-stat-label">Page Views</div>
                     </div>
                     <div class="st-stat-item">
-                        <div class="st-stat-value">{{ stats.sessionsPerVisitor.control }}</div>
-                        <div class="st-stat-label">Sessions/Visitor</div>
+                        <div class="st-stat-value">{{ stats.pagesPerVisitor.control }}</div>
+                        <div class="st-stat-label">Pages/Visitor</div>
                     </div>
                 </div>
             </div>
@@ -304,7 +336,7 @@
                 <div class="st-big-number {% if stats.improvement > 0 %}positive{% elseif stats.improvement < 0 %}negative{% else %}neutral{% endif %}">
                     {{ stats.conversionRates.variant }}%
                 </div>
-                <div class="st-stat-label">Conversion Rate</div>
+                <div class="st-stat-label">Conversion rate: {{ stats.primaryGoalLabel|lower }}</div>
                 {% if stats.confidenceIntervals.variant.margin > 0 %}
                     <div class="st-confidence-interval">
                         &plusmn;{{ stats.confidenceIntervals.variant.margin }}%
@@ -315,19 +347,19 @@
                 <div class="st-stat-grid">
                     <div class="st-stat-item">
                         <div class="st-stat-value">{{ stats.visitors.variant }}</div>
-                        <div class="st-stat-label">Unique Visitors</div>
+                        <div class="st-stat-label">Visitors</div>
                     </div>
                     <div class="st-stat-item">
-                        <div class="st-stat-value">{{ stats.impressions.variant }}</div>
-                        <div class="st-stat-label">Impressions</div>
+                        <div class="st-stat-value">{{ stats.convertedVisitors.variant }}</div>
+                        <div class="st-stat-label">Converted</div>
                     </div>
                     <div class="st-stat-item">
-                        <div class="st-stat-value">{{ stats.conversions.variant }}</div>
-                        <div class="st-stat-label">Conversions</div>
+                        <div class="st-stat-value">{{ stats.pageViews.variant }}</div>
+                        <div class="st-stat-label">Page Views</div>
                     </div>
                     <div class="st-stat-item">
-                        <div class="st-stat-value">{{ stats.sessionsPerVisitor.variant }}</div>
-                        <div class="st-stat-label">Sessions/Visitor</div>
+                        <div class="st-stat-value">{{ stats.pagesPerVisitor.variant }}</div>
+                        <div class="st-stat-label">Pages/Visitor</div>
                     </div>
                 </div>
             </div>
@@ -338,16 +370,18 @@
                 <div class="st-big-number {% if stats.isSignificant %}positive{% else %}neutral{% endif %}">
                     {{ (stats.confidence * 100)|number_format(1) }}%
                 </div>
-                <div class="st-stat-label">Confidence Level</div>
+                <div class="st-stat-label">
+                    Confidence Level{% if not stats.verdictReady %} (provisional){% endif %}
+                </div>
 
-                {# Progress bar toward 95% significance #}
+                {# Progress bar toward the significance threshold #}
                 <div class="st-progress-bar" style="margin-top: 16px;">
                     <div class="st-progress-fill {% if stats.isSignificant %}green{% else %}blue{% endif %}"
                          style="width: {{ min(100, stats.confidence * 100) }}%;"></div>
                 </div>
                 <div style="display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8;">
                     <span>0%</span>
-                    <span style="color: {% if stats.isSignificant %}var(--st-green){% else %}#64748b{% endif %};">95% threshold</span>
+                    <span style="color: {% if stats.isSignificant %}var(--st-green){% else %}#64748b{% endif %};">{{ (stats.threshold * 100)|number_format(0) }}% threshold</span>
                     <span>100%</span>
                 </div>
 
@@ -363,18 +397,26 @@
                         <span class="st-status-badge significant">
                             Statistically Significant
                         </span>
+                    {% elseif stats.verdictReady %}
+                        <span class="st-status-badge not-significant">
+                            No Significant Difference
+                        </span>
                     {% else %}
                         <span class="st-status-badge not-significant">
-                            Not Yet Significant
+                            Collecting Data
                         </span>
                     {% endif %}
                 </div>
 
-                {% if not stats.isSignificant and timeEstimate and not timeEstimate.reached %}
+                {% if not stats.verdictReady %}
                     <div style="margin-top: 12px; font-size: 13px; color: #64748b;">
                         <strong>Sample Progress:</strong> {{ stats.progressPercent }}%<br>
-                        {{ stats.totalVisitors }} / {{ stats.sampleSizeNeeded * 2 }} visitors needed<br>
-                        Est. {{ timeEstimate.daysRemaining }} day{{ timeEstimate.daysRemaining != 1 ? 's' }} remaining
+                        {{ stats.visitors.control }} / {{ stats.sampleSizeNeeded }} control,
+                        {{ stats.visitors.variant }} / {{ stats.sampleSizeNeeded }} variant visitors<br>
+                        Day {{ stats.daysRunning }} of at least {{ stats.minimumDays }}
+                        {% if timeEstimate and not timeEstimate.reached %}
+                            <br>Est. {{ timeEstimate.daysRemaining }} day{{ timeEstimate.daysRemaining != 1 ? 's' }} remaining
+                        {% endif %}
                     </div>
                 {% endif %}
             </div>
@@ -385,7 +427,7 @@
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
                 {# Conversion Rate Trend Chart #}
                 <div class="st-chart-container">
-                    <h3>Conversion Rate Trend</h3>
+                    <h3>Conversion Rate Over Time (cumulative)</h3>
                     <div class="st-chart-wrapper">
                         <canvas id="conversionRateChart"></canvas>
                     </div>
@@ -393,7 +435,7 @@
 
                 {# Daily Traffic Chart #}
                 <div class="st-chart-container">
-                    <h3>Daily Traffic</h3>
+                    <h3>New Visitors per Day</h3>
                     <div class="st-chart-wrapper">
                         <canvas id="trafficChart"></canvas>
                     </div>
@@ -406,23 +448,25 @@
         {% if goals|length > 0 %}
             <div class="st-chart-container">
                 <h3>Conversion Breakdown by Goal</h3>
+                <p class="light" style="margin: -8px 0 12px;">
+                    Visitors who converted on each goal, out of all visitors to that version.
+                    The result above is judged on {{ stats.primaryGoalLabel|lower }}.
+                </p>
                 <table class="st-goal-table">
                     <thead>
                         <tr>
-                            <th>Goal Type</th>
+                            <th>Goal</th>
                             <th>Control</th>
                             <th>Variant</th>
-                            <th>Absolute Diff</th>
                             <th>Relative Lift</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for goal in goals %}
                             {% set goalStats = stats.goalStats[goal.goalType] ?? null %}
-                            {% set controlVal = goalStats.control ?? 0 %}
-                            {% set variantVal = goalStats.variant ?? 0 %}
-                            {% set absoluteDiff = variantVal - controlVal %}
-                            {% set lift = controlVal > 0 ? ((variantVal - controlVal) / controlVal * 100)|round(1) : (variantVal > 0 ? 100 : 0) %}
+                            {% set controlRate = goalStats.control.rate ?? 0 %}
+                            {% set variantRate = goalStats.variant.rate ?? 0 %}
+                            {% set lift = controlRate > 0 ? ((variantRate - controlRate) / controlRate * 100)|round(1) : null %}
                             <tr>
                                 <td>
                                     {% switch goal.goalType %}
@@ -441,14 +485,14 @@
                                         {% default %}
                                             {{ goal.goalType|capitalize }}
                                     {% endswitch %}
+                                    {% if goal.goalType == stats.primaryGoalType %}
+                                        <span class="token" style="margin-left: 4px;">Primary</span>
+                                    {% endif %}
                                 </td>
-                                <td>{{ controlVal }}</td>
-                                <td>{{ variantVal }}</td>
-                                <td class="{% if absoluteDiff > 0 %}st-lift-positive{% elseif absoluteDiff < 0 %}st-lift-negative{% endif %}">
-                                    {% if absoluteDiff > 0 %}+{% endif %}{{ absoluteDiff }}
-                                </td>
-                                <td class="{% if lift > 0 %}st-lift-positive{% elseif lift < 0 %}st-lift-negative{% endif %}">
-                                    {% if lift > 0 %}+{% endif %}{{ lift }}%
+                                <td>{{ controlRate }}% <span class="light">({{ goalStats.control.convertedVisitors ?? 0 }})</span></td>
+                                <td>{{ variantRate }}% <span class="light">({{ goalStats.variant.convertedVisitors ?? 0 }})</span></td>
+                                <td class="{% if lift is not null and lift > 0 %}st-lift-positive{% elseif lift is not null and lift < 0 %}st-lift-negative{% endif %}">
+                                    {% if lift is null %}&mdash;{% else %}{% if lift > 0 %}+{% endif %}{{ lift }}%{% endif %}
                                 </td>
                             </tr>
                         {% endfor %}
@@ -555,6 +599,10 @@
                             {% endif %}
                         </td>
                     </tr>
+                    <tr>
+                        <th>Primary Goal</th>
+                        <td>{{ test.getPrimaryGoalLabel() }}</td>
+                    </tr>
                     {% if test.startedAt %}
                         <tr>
                             <th>Started</th>
@@ -580,22 +628,22 @@
                         <tr>
                             <th>Date</th>
                             <th>Control Visitors</th>
-                            <th>Control Conv.</th>
-                            <th>Control Rate</th>
+                            <th>Control Converted</th>
+                            <th>Control Rate (cumulative)</th>
                             <th>Variant Visitors</th>
-                            <th>Variant Conv.</th>
-                            <th>Variant Rate</th>
+                            <th>Variant Converted</th>
+                            <th>Variant Rate (cumulative)</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for day in stats.dailyStats %}
                             <tr>
                                 <td>{{ day.date }}</td>
-                                <td>{{ day.control.impressions }}</td>
-                                <td>{{ day.control.conversions }}</td>
+                                <td>{{ day.control.visitors }}</td>
+                                <td>{{ day.control.converted }}</td>
                                 <td>{{ day.control.rate }}%</td>
-                                <td>{{ day.variant.impressions }}</td>
-                                <td>{{ day.variant.conversions }}</td>
+                                <td>{{ day.variant.visitors }}</td>
+                                <td>{{ day.variant.converted }}</td>
                                 <td>{{ day.variant.rate }}%</td>
                             </tr>
                         {% endfor %}
@@ -609,11 +657,12 @@
 {% block foot %}
     {{ parent() }}
 
-    {# Chart.js from CDN #}
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    {# Chart.js, bundled with the plugin #}
+    {% do view.registerAssetBundle('livehand\\abtestcraft\\web\\assets\\results\\ResultsAsset') %}
 
     {% if stats.dailyStats|length > 0 %}
-    <script>
+    {# Registered after the Chart.js bundle, so Chart is defined when this runs #}
+    {% js %}
         (function() {
             // Prepare data from Twig
             var dailyStats = {{ stats.dailyStats|json_encode|raw }};
@@ -626,8 +675,8 @@
 
             var controlRates = dailyStats.map(function(d) { return d.control.rate; });
             var variantRates = dailyStats.map(function(d) { return d.variant.rate; });
-            var controlImpressions = dailyStats.map(function(d) { return d.control.impressions; });
-            var variantImpressions = dailyStats.map(function(d) { return d.variant.impressions; });
+            var controlVisitors = dailyStats.map(function(d) { return d.control.visitors; });
+            var variantVisitors = dailyStats.map(function(d) { return d.variant.visitors; });
 
             // Chart defaults
             Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
@@ -706,13 +755,13 @@
                         labels: labels,
                         datasets: [{
                             label: 'Control',
-                            data: controlImpressions,
+                            data: controlVisitors,
                             backgroundColor: 'rgba(99, 102, 241, 0.7)',
                             borderColor: '#6366f1',
                             borderWidth: 1
                         }, {
                             label: 'Variant',
-                            data: variantImpressions,
+                            data: variantVisitors,
                             backgroundColor: 'rgba(34, 197, 94, 0.7)',
                             borderColor: '#22c55e',
                             borderWidth: 1
@@ -732,7 +781,7 @@
                                 beginAtZero: true,
                                 title: {
                                     display: true,
-                                    text: 'Impressions'
+                                    text: 'New visitors'
                                 },
                                 stacked: false
                             },
@@ -744,6 +793,6 @@
                 });
             }
         })();
-    </script>
+    {% endjs %}
     {% endif %}
 {% endblock %}

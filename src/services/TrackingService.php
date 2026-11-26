@@ -23,6 +23,11 @@ use DateTime;
  */
 class TrackingService extends Component
 {
+    /** Visitor goal slot for a visitor's first conversion of any goal type */
+    public const ANY_GOAL = '*';
+
+    private const COUNTER_COLUMNS = ['impressions', 'conversions', 'visitors', 'convertedVisitors'];
+
     /**
      * Record an impression for a test
      */
@@ -42,7 +47,34 @@ class TrackingService extends Component
     }
 
     /**
-     * Record a conversion for a test, de-duplicated per the counting mode
+     * Count a newly assigned visitor in today's stats. Visitor counts live in
+     * the daily stats (not just the visitor records), so results don't change
+     * when old visitor records are cleaned up.
+     */
+    public function recordNewVisitor(Test $test, string $variant): bool
+    {
+        try {
+            $this->incrementDailyStat((int) $test->id, $variant, null, 'visitors');
+        } catch (\Throwable $e) {
+            Craft::error(
+                "Failed to count new visitor for test '{$test->handle}': " . $e->getMessage(),
+                __METHOD__
+            );
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Record a conversion for a test.
+     *
+     * Results are per visitor: each visitor counts once per goal type, and
+     * once for "any goal" on their first conversion, whatever the counting
+     * mode. The counting mode only decides what the raw "conversions" total
+     * counts: one per goal type (default), the first conversion only, or every
+     * conversion. Each claim is an atomic insert on a unique row, so
+     * simultaneous requests can't count the same thing twice.
      */
     public function recordConversion(Test $test, string $conversionType, ?int $goalId = null): bool
     {
@@ -57,33 +89,45 @@ class TrackingService extends Component
             return false;
         }
 
-        // De-duplicate by counting mode with an atomic claim on a unique
-        // (test, visitor, slot) row: the goal type ("one per goal type",
-        // the default) or '*' ("first conversion only"). Unlimited mode
-        // counts everything. This also stops simultaneous requests from
-        // counting the same conversion twice.
+        $testId = (int) $test->id;
+        $visitorId = $visitorRecord->visitorId;
+        $variant = $visitorRecord->variant;
+
+        $firstOfType = $this->claimConversionSlot($testId, $visitorId, $conversionType);
+        $firstOfAny = $this->claimConversionSlot($testId, $visitorId, self::ANY_GOAL);
+
         $mode = ABTestCraft::getInstance()->getSettings()->conversionCountingMode ?? Settings::COUNTING_PER_GOAL_TYPE;
-        $slot = match ($mode) {
-            Settings::COUNTING_FIRST_ONLY => '*',
-            Settings::COUNTING_UNLIMITED => null,
-            default => $conversionType,
+        $countConversion = match ($mode) {
+            Settings::COUNTING_FIRST_ONLY => $firstOfAny,
+            Settings::COUNTING_UNLIMITED => true,
+            default => $firstOfType,
         };
 
-        if ($slot !== null && !$this->claimConversionSlot((int) $test->id, $visitorRecord->visitorId, $slot)) {
-            return true; // Already counted under the counting mode rules
+        if (!$countConversion && !$firstOfType && !$firstOfAny) {
+            return true; // Already counted
         }
 
-        // Count it. Daily totals (goalType null, for backward compatibility)
-        // and per-goal-type stats use atomic increments, deliberately not in a
-        // transaction: a row inserted in an open transaction isn't visible to
-        // concurrent requests, which would then insert duplicates.
+        // Atomic increments, deliberately not in a transaction: a row inserted
+        // in an open transaction isn't visible to concurrent requests, which
+        // would then insert duplicates
         try {
-            $this->incrementDailyStat((int) $test->id, $visitorRecord->variant, null, 'conversions');
-            $this->incrementDailyStat((int) $test->id, $visitorRecord->variant, $conversionType, 'conversions');
+            if ($countConversion) {
+                $this->incrementDailyStat($testId, $variant, null, 'conversions');
+                $this->incrementDailyStat($testId, $variant, $conversionType, 'conversions');
+            }
+            if ($firstOfType) {
+                $this->incrementDailyStat($testId, $variant, $conversionType, 'convertedVisitors');
+            }
+            if ($firstOfAny) {
+                $this->incrementDailyStat($testId, $variant, null, 'convertedVisitors');
+            }
         } catch (\Throwable $e) {
-            // Not counted, so free the slot and let a later attempt count it
-            if ($slot !== null) {
-                $this->releaseConversionSlot((int) $test->id, $visitorRecord->visitorId, $slot);
+            // Not counted, so free the claims and let a later attempt count it
+            if ($firstOfType) {
+                $this->releaseConversionSlot($testId, $visitorId, $conversionType);
+            }
+            if ($firstOfAny) {
+                $this->releaseConversionSlot($testId, $visitorId, self::ANY_GOAL);
             }
             Craft::error(
                 "Failed to record conversion for test '{$test->handle}': " . $e->getMessage(),
@@ -114,8 +158,8 @@ class TrackingService extends Component
     }
 
     /**
-     * Claim a conversion slot for a visitor. Returns false if it was already
-     * claimed (the conversion was counted before). The unique index on
+     * Claim a conversion slot for a visitor: a goal type, or '*' for any
+     * goal. Returns false if it was already claimed. The unique index on
      * (testId, visitorId, goalType) makes this safe under concurrency.
      */
     private function claimConversionSlot(int $testId, string $visitorId, string $slot): bool
@@ -156,7 +200,7 @@ class TrackingService extends Component
     }
 
     /**
-     * Atomically add 1 to today's impressions or conversions for a variant.
+     * Atomically add 1 to one of today's counters for a variant.
      *
      * A read-modify-write through the ActiveRecord lost counts under
      * concurrent traffic (about 26-48% of impressions at 20 concurrent
@@ -165,11 +209,11 @@ class TrackingService extends Component
      * don't create duplicate rows (the unique index can't prevent those when
      * goalType is NULL).
      *
-     * @param string $column 'impressions' or 'conversions'
+     * @param string $column 'impressions', 'conversions', 'visitors' or 'convertedVisitors'
      */
     private function incrementDailyStat(int $testId, string $variant, ?string $goalType, string $column): void
     {
-        if (!in_array($column, ['impressions', 'conversions'], true)) {
+        if (!in_array($column, self::COUNTER_COLUMNS, true)) {
             throw new \InvalidArgumentException("Invalid stats column: {$column}");
         }
 
@@ -196,9 +240,9 @@ class TrackingService extends Component
             // Audit columns set explicitly so this doesn't depend on the
             // connection using Craft's command class
             $now = Db::prepareDateForDb(new DateTime());
-            Craft::$app->getDb()->createCommand()->insert('{{%abtestcraft_daily_stats}}', $condition + [
-                'impressions' => $column === 'impressions' ? 1 : 0,
-                'conversions' => $column === 'conversions' ? 1 : 0,
+            $counters = array_fill_keys(self::COUNTER_COLUMNS, 0);
+            $counters[$column] = 1;
+            Craft::$app->getDb()->createCommand()->insert('{{%abtestcraft_daily_stats}}', $condition + $counters + [
                 'dateCreated' => $now,
                 'dateUpdated' => $now,
                 'uid' => StringHelper::UUID(),

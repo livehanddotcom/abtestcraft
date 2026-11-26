@@ -6,6 +6,7 @@ namespace livehand\abtestcraft\services;
 
 use Craft;
 use craft\base\Component;
+use craft\helpers\DateTimeHelper;
 use craft\helpers\Json;
 use livehand\abtestcraft\models\Goal;
 use livehand\abtestcraft\models\Test;
@@ -104,8 +105,8 @@ class GoalsService extends Component
         }
 
         $goal->id = (int) $record->id;
-        $goal->dateCreated = new DateTime($record->dateCreated);
-        $goal->dateUpdated = new DateTime($record->dateUpdated);
+        $goal->dateCreated = DateTimeHelper::toDateTime($record->dateCreated) ?: null;
+        $goal->dateUpdated = DateTimeHelper::toDateTime($record->dateUpdated) ?: null;
         $goal->uid = $record->uid;
 
         return true;
@@ -253,8 +254,8 @@ class GoalsService extends Component
         $goal->isEnabled = (bool) $record->isEnabled;
         $goal->config = is_string($record->config) ? Json::decode($record->config) : $record->config;
         $goal->sortOrder = $record->sortOrder !== null ? (int) $record->sortOrder : null;
-        $goal->dateCreated = new DateTime($record->dateCreated);
-        $goal->dateUpdated = new DateTime($record->dateUpdated);
+        $goal->dateCreated = DateTimeHelper::toDateTime($record->dateCreated) ?: null;
+        $goal->dateUpdated = DateTimeHelper::toDateTime($record->dateUpdated) ?: null;
         $goal->uid = $record->uid;
 
         return $goal;

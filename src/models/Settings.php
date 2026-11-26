@@ -44,6 +44,21 @@ class Settings extends Model
     /** @var int Maximum conversions per minute per IP per test */
     public int $conversionRateLimit = 10;
 
+    /** @var bool Known bots and crawlers see the control and aren't counted */
+    public bool $excludeBots = true;
+
+    /**
+     * @var bool People logged in with control panel access see the control and
+     * aren't counted (they can preview a variant with ?abtestcraft=variant)
+     */
+    public bool $excludeControlPanelUsers = true;
+
+    /**
+     * @var int Days a test must run before a winner can be called, so weekday
+     * and weekend visitors are both represented
+     */
+    public int $minimumTestDays = 7;
+
     /**
      * Conversion counting mode:
      * - 'first_only': Count only the first conversion (any goal type) per visitor
@@ -64,6 +79,7 @@ class Settings extends Model
             [['significanceThreshold'], 'number', 'min' => 0.8, 'max' => 0.99],
             [['minimumDetectableEffect'], 'number', 'min' => 0.05, 'max' => 0.30],
             [['conversionRateLimit'], 'integer', 'min' => 1, 'max' => 100],
+            [['minimumTestDays'], 'integer', 'min' => 0, 'max' => 90],
             [
                 [
                     'trackPhoneClicks',
@@ -72,6 +88,8 @@ class Settings extends Model
                     'trackFileDownloads',
                     'sendSignificanceEmail',
                     'enableDataLayer',
+                    'excludeBots',
+                    'excludeControlPanelUsers',
                 ],
                 'boolean',
             ],

@@ -467,13 +467,14 @@ class TrackingServiceIntegrationTest extends Unit
     }
 
     /**
-     * Slots are removed with the test (FK cascade), so nothing is left behind
+     * Slots are removed with the test (FK cascade), so nothing is left behind.
+     * One conversion claims two slots: its goal type and '*' (any goal).
      */
     public function testVisitorGoalSlotsAreDeletedWithTest(): void
     {
         $this->convertSequence(Settings::COUNTING_PER_GOAL_TYPE, ['phone']);
         $testId = $this->testRecordId;
-        $this->assertSame(1, (int) (new Query())->from('{{%abtestcraft_visitor_goals}}')->where(['testId' => $testId])->count());
+        $this->assertSame(2, (int) (new Query())->from('{{%abtestcraft_visitor_goals}}')->where(['testId' => $testId])->count());
 
         TestRecord::deleteAll(['id' => $testId]);
         $this->assertSame(0, (int) (new Query())->from('{{%abtestcraft_visitor_goals}}')->where(['testId' => $testId])->count());

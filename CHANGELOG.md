@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - Unreleased
+
+> [!IMPORTANT]
+> Results are now calculated per visitor, so the numbers on existing tests change when you update. Conversion rates used to divide conversions from all goals by page views (every load of a tested page, including reloads and child pages), which understated rates and overstated confidence. A winner is now only called once a test has reached its planned sample size and run at least 7 days, so a test that showed "significant" before may now show "Collecting Data". Bots and logged-in control panel users are no longer counted from now on. Run `./craft up` after updating: the migration rebuilds visitor counts from your existing visitor records.
+
+### Added
+- Each test has a **Primary Goal**: the goal its result is judged on. "Any goal" (the default) counts a visitor who completed any enabled goal. The other goals are still reported in the goal breakdown.
+- A winner is only called, and the significance email only sent, once each version has reached the planned sample size and the test has run the new **Minimum Test Duration** setting (7 days by default). Until then the results page shows the confidence as provisional and how many days are left.
+- A warning on the results page when visitors split noticeably differently from the configured traffic split, which usually means a page cache, redirect or bots are affecting one version.
+- Bots, crawlers, link previews, uptime monitors and HTTP libraries see the control and aren't counted (**Exclude Bots**, on by default).
+- People logged in with control panel access see the control and aren't counted (**Exclude Control Panel Users**, on by default). They can preview a variant on the real page with `?abtestcraft=variant` or `?abtestcraft=control`; those views are never counted.
+- Console `stats`, `recalculate-stats` and `export` accept a test handle as well as an ID.
+
+### Changed
+- Conversion rates are the share of visitors who converted on the primary goal, and significance is tested on visitors (each visitor is one trial). Page views and raw conversion counts are shown alongside.
+- The significance test uses an exact p-value instead of a lookup table, and the planned sample size uses the configured significance threshold (it assumed 95%).
+- Visitor counts are kept in the daily statistics, so `cleanup` no longer changes a test's results. `cleanup` also removes the deleted visitors' goal records.
+- The conversion rate chart shows the cumulative rate, and the traffic chart shows new visitors per day.
+- `export` prints only the CSV to standard output, so `> results.csv` gives a clean file, and includes per-goal results.
+- Conversion Counting now only changes the raw conversion totals, not the result.
+- Chart.js is bundled with the plugin instead of loaded from a CDN.
+
+### Fixed
+- Fixed previews (Live Preview and preview links) assigning a variant and counting an impression.
+- Fixed two running tests being able to target the same page, in which case one of them silently got no traffic. A test can't be started on a page that's already part of a running test, including as a child page.
+- Fixed test start and end dates being read in the site's timezone instead of UTC, which shifted test durations and the dates shown in the control panel by the site's UTC offset.
+- Fixed the progress column on the Tests page always showing 0%.
+- Fixed the significance email linking to `/admin` on sites with a different control panel path.
+- Fixed the conversion endpoint giving visitors who weren't in a test a visitor ID cookie.
+- Fixed the README's sample size examples, which were about ten times too low.
+
 ## [1.1.0] - 2026-11-26
 
 > [!IMPORTANT]

@@ -579,6 +579,27 @@ ABTestCraft.trackConversion('your-event-name');</code>
         </div>
     </div>
 
+    <hr>
+
+    {# The goal results are judged on #}
+    {{ forms.selectField({
+        label: "Primary Goal"|t('abtestcraft'),
+        instructions: "The goal the result is judged on: the conversion rate and winner are based on the share of visitors who completed it. With several goals, choose the one that matters most to the business; the others are still reported. \"Any goal\" counts a visitor who completed any of the enabled goals."|t('abtestcraft'),
+        id: 'primaryGoalType',
+        name: 'primaryGoalType',
+        options: [
+            { label: 'Any goal', value: '' },
+            { label: 'Form Submissions', value: 'form' },
+            { label: 'Phone Clicks', value: 'phone' },
+            { label: 'Email Clicks', value: 'email' },
+            { label: 'File Downloads', value: 'download' },
+            { label: 'Page Visit', value: 'page' },
+            { label: 'Custom Event', value: 'custom' },
+        ],
+        value: test.primaryGoalType ?? '',
+        errors: test.getErrors('primaryGoalType'),
+    }) }}
+
     {# Keep legacy fields for backward compatibility (hidden) #}
     <input type="hidden" name="goalType" value="{{ test.goalType ?? 'form' }}">
     <input type="hidden" name="goalValue" value="{{ test.goalValue ?? '' }}">

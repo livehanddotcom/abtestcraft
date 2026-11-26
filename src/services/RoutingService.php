@@ -23,6 +23,7 @@ class RoutingService extends Component
     private ?array $cascadeInfo = null;
     private ?Entry $controlEntry = null;
     private ?Entry $variantParent = null;
+    private bool $isEditorPreview = false;
 
     /**
      * Handle the before render event to swap content if needed
@@ -84,8 +85,20 @@ class RoutingService extends Component
             return;
         }
 
-        // Get or assign variant
-        $variant = ABTestCraft::getInstance()->assignment->getOrAssignVariant($test);
+        $filter = ABTestCraft::getInstance()->visitorFilter;
+        $previewVariant = $filter->getEditorPreviewVariant();
+
+        if ($previewVariant !== null) {
+            // An editor previewing a variant: shown, not assigned or counted
+            $variant = $previewVariant;
+            $this->isEditorPreview = true;
+        } elseif ($filter->shouldExcludeRequest()) {
+            // Previews, bots and control panel users see the control, with
+            // no assignment, cookies or impression
+            return;
+        } else {
+            $variant = ABTestCraft::getInstance()->assignment->getOrAssignVariant($test);
+        }
 
         // Store for later use (tracking, SEO, Twig helpers)
         $this->activeTest = $test;
@@ -113,8 +126,9 @@ class RoutingService extends Component
             }
         }
 
-        // Record impression
-        ABTestCraft::getInstance()->tracking->recordImpression($test, $variant);
+        if (!$this->isEditorPreview) {
+            ABTestCraft::getInstance()->tracking->recordImpression($test, $variant);
+        }
     }
 
     /**
@@ -238,6 +252,15 @@ class RoutingService extends Component
     public function hasActiveTest(): bool
     {
         return $this->activeTest !== null;
+    }
+
+    /**
+     * Whether this page view is an editor previewing a variant with
+     * ?abtestcraft=variant|control (not assigned, tracked or counted)
+     */
+    public function isEditorPreview(): bool
+    {
+        return $this->isEditorPreview;
     }
 
     /**

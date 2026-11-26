@@ -25,6 +25,7 @@ use yii\db\ActiveQueryInterface;
  * @property int $trafficSplit
  * @property string $goalType
  * @property string|null $goalValue
+ * @property string|null $primaryGoalType
  * @property \DateTime|null $startedAt
  * @property \DateTime|null $endedAt
  * @property string|null $winnerVariant

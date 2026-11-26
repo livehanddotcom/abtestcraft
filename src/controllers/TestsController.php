@@ -50,15 +50,12 @@ class TestsController extends Controller
 
         $testsWithStats = [];
         foreach ($tests as $test) {
-            // Get time estimate for running tests
-            $timeEstimate = null;
-            if ($test->isRunning()) {
-                $timeEstimate = ABTestCraft::getInstance()->stats->getTimeEstimate($test);
-            }
+            $stats = $batchStats[$test->id] ?? [];
             $testsWithStats[] = [
                 'test' => $test,
-                'stats' => $batchStats[$test->id] ?? [],
-                'timeEstimate' => $timeEstimate,
+                'stats' => $stats,
+                // Time to a callable result, for running tests
+                'timeEstimate' => $test->isRunning() ? ($stats['timeEstimate'] ?? null) : null,
             ];
         }
 
@@ -170,7 +167,7 @@ class TestsController extends Controller
         }
 
         $stats = ABTestCraft::getInstance()->stats->getTestStats($test);
-        $timeEstimate = ABTestCraft::getInstance()->stats->getTimeEstimate($test);
+        $timeEstimate = $stats['timeEstimate'];
 
         return $this->renderTemplate('abtestcraft/tests/results', [
             'test' => $test,
@@ -229,7 +226,19 @@ class TestsController extends Controller
         $test->goalType = $request->getBodyParam('goalType');
         $test->goalValue = $request->getBodyParam('goalValue');
 
-        if (!ABTestCraft::getInstance()->tests->saveTest($test)) {
+        // The goal results are judged on (empty = any goal). It has to be one
+        // of the goals enabled in this same form.
+        $goalsData = (array) $request->getBodyParam('goals', []);
+        $primaryGoalType = (string) $request->getBodyParam('primaryGoalType', '');
+        $test->primaryGoalType = $primaryGoalType !== '' ? $primaryGoalType : null;
+        $primaryGoalDisabled = $test->primaryGoalType !== null
+            && empty($goalsData[$test->primaryGoalType]['isEnabled']);
+
+        if ($primaryGoalDisabled || !ABTestCraft::getInstance()->tests->saveTest($test)) {
+            if ($primaryGoalDisabled) {
+                $test->validate();
+                $test->addError('primaryGoalType', 'The primary goal must be one of the enabled goals.');
+            }
             $errors = $test->getErrors();
             $errorMessages = [];
             foreach ($errors as $attribute => $messages) {
@@ -255,7 +264,6 @@ class TestsController extends Controller
         }
 
         // Save goals (new multi-goal system)
-        $goalsData = $request->getBodyParam('goals', []);
         $this->saveGoalsFromRequest($test, $goalsData);
 
         $this->clearTestCounts($test);

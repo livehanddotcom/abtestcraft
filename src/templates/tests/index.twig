@@ -149,7 +149,7 @@
                                 <span class="light">—</span>
                             {% else %}
                                 {{ stats.conversionRates.control }}%
-                                <div class="light">{{ stats.conversions.control }}/{{ stats.impressions.control }}</div>
+                                <div class="light">{{ stats.convertedVisitors.control }}/{{ stats.visitors.control }} visitors</div>
                             {% endif %}
                         </td>
                         <td>
@@ -157,7 +157,7 @@
                                 <span class="light">—</span>
                             {% else %}
                                 {{ stats.conversionRates.variant }}%
-                                <div class="light">{{ stats.conversions.variant }}/{{ stats.impressions.variant }}</div>
+                                <div class="light">{{ stats.convertedVisitors.variant }}/{{ stats.visitors.variant }} visitors</div>
                             {% endif %}
                         </td>
                         {# Lift column - contextual display #}
@@ -166,11 +166,11 @@
                                 <span style="color: {% if stats.improvement > 0 %}#27ae60{% elseif stats.improvement < 0 %}#e74c3c{% else %}#3f4d5a{% endif %}; font-weight: 600;">
                                     {% if stats.improvement > 0 %}+{% endif %}{{ stats.improvement }}%
                                 </span>
-                            {% elseif test.status == 'running' and (stats.impressions.control + stats.impressions.variant) > 100 %}
+                            {% elseif test.status == 'running' and stats.totalVisitors > 100 %}
                                 <span style="color: #8f98a3;">
                                     ~{% if stats.improvement > 0 %}+{% endif %}{{ stats.improvement }}%
                                 </span>
-                                <div class="light" style="font-size: 10px;">preliminary</div>
+                                <div class="light" style="font-size: 10px;">too early to call</div>
                             {% else %}
                                 <span class="light">—</span>
                             {% endif %}
@@ -187,7 +187,9 @@
                                 </div>
                                 <div class="light" style="font-size: 10px; margin-top: 2px;">
                                     {% if stats.isSignificant %}
-                                        Ready to call
+                                        Winner found
+                                    {% elseif stats.verdictReady %}
+                                        No difference
                                     {% elseif timeEstimate and not timeEstimate.reached %}
                                         ~{{ timeEstimate.daysRemaining }}d left
                                     {% endif %}

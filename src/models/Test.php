@@ -29,6 +29,9 @@ class Test extends Model
     public int $trafficSplit = 50;
     public string $goalType = 'form';
     public ?string $goalValue = null;
+
+    /** @var string|null The goal results are judged on; null means any goal */
+    public ?string $primaryGoalType = null;
     public ?DateTime $startedAt = null;
     public ?DateTime $endedAt = null;
     public ?string $winnerVariant = null;
@@ -80,6 +83,7 @@ class Test extends Model
                 'range' => [self::GOAL_PHONE, self::GOAL_FORM, self::GOAL_PAGE, self::GOAL_EMAIL, self::GOAL_DOWNLOAD],
             ],
             [['goalValue'], 'string', 'max' => 500],
+            [['primaryGoalType'], 'in', 'range' => array_keys(Goal::getGoalTypeOptions()), 'skipOnEmpty' => true],
             [['winnerVariant'], 'in', 'range' => [self::VARIANT_CONTROL, self::VARIANT_VARIANT, null]],
             [
                 ['handle'],
@@ -141,6 +145,7 @@ class Test extends Model
             'trafficSplit' => 'Traffic to Variant (%)',
             'goalType' => 'Goal Type',
             'goalValue' => 'Goal Value',
+            'primaryGoalType' => 'Primary Goal',
         ];
     }
 
@@ -236,6 +241,18 @@ class Test extends Model
     public function hasEnabledGoals(): bool
     {
         return !empty($this->getEnabledGoals());
+    }
+
+    /**
+     * Label of the goal results are judged on
+     */
+    public function getPrimaryGoalLabel(): string
+    {
+        if ($this->primaryGoalType === null) {
+            return 'Any goal';
+        }
+
+        return Goal::getGoalTypeOptions()[$this->primaryGoalType]['label'] ?? ucfirst($this->primaryGoalType);
     }
 
     /**
