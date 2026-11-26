@@ -94,4 +94,46 @@ class AssignmentServiceIntegrationTest extends Unit
         $result = $method->invoke($this->service, '_abtestcraft_1_testhandle', '');
         $this->assertNull($result, 'Empty string should be rejected');
     }
+
+    /**
+     * The "in a test" marker read by the page-visit beacon only accepts "1".
+     * It shares the variant cookies' prefix, so it must not be treated as one.
+     */
+    public function testValidateCookieValueForMarker(): void
+    {
+        $method = new \ReflectionMethod(AssignmentService::class, 'validateCookieValue');
+        $method->setAccessible(true);
+        $marker = AssignmentService::MARKER_COOKIE;
+
+        $this->assertSame('1', $method->invoke($this->service, $marker, '1'));
+        $this->assertNull($method->invoke($this->service, $marker, '0'));
+        $this->assertNull($method->invoke($this->service, $marker, Test::VARIANT_CONTROL));
+        $this->assertNull($method->invoke($this->service, $marker, '<script>alert(1)</script>'));
+    }
+
+    /**
+     * getVisitorId() reads the cookie but never creates a visitor, so the
+     * beacon and form handlers can't add visitors to tests.
+     */
+    public function testGetVisitorIdNeverCreatesOne(): void
+    {
+        $original = $_COOKIE['_abtestcraft_vid'] ?? null;
+        unset($_COOKIE['_abtestcraft_vid']);
+
+        try {
+            $this->assertNull($this->service->getVisitorId());
+            $this->assertArrayNotHasKey('_abtestcraft_vid', $_COOKIE);
+
+            $_COOKIE['_abtestcraft_vid'] = 'not-a-uuid';
+            $this->assertNull($this->service->getVisitorId(), 'Invalid IDs are ignored');
+
+            $_COOKIE['_abtestcraft_vid'] = '12345678-1234-1234-1234-123456789abc';
+            $this->assertSame('12345678-1234-1234-1234-123456789abc', $this->service->getVisitorId());
+        } finally {
+            unset($_COOKIE['_abtestcraft_vid']);
+            if ($original !== null) {
+                $_COOKIE['_abtestcraft_vid'] = $original;
+            }
+        }
+    }
 }
