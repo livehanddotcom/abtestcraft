@@ -212,8 +212,9 @@
                         {% if availableForms|length > 0 %}
                             {% for form in availableForms %}
                                 <div style="margin-bottom: 8px;">
+                                    {# Plain text: Craft escapes checkbox labels, so HTML here showed as code #}
                                     {{ forms.checkbox({
-                                        label: form.name ~ ' <span style="color: #8f98a8; font-weight: normal;">(' ~ form.pluginName ~ ')</span>',
+                                        label: form.name ~ ' (' ~ form.pluginName ~ ')',
                                         name: 'goals[form][config][forms][]',
                                         value: form.plugin ~ ':' ~ form.handle,
                                         checked: (form.plugin ~ ':' ~ form.handle) in selectedForms,

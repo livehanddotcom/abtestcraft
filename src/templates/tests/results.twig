@@ -338,7 +338,8 @@
         {# Summary Card #}
         <div class="st-summary-card">
             <p>
-                {% set daysRunning = test.startedAt ? max(1, date().diff(test.startedAt).days) : 0 %}
+                {# Counts to the end date for completed tests, like the banner #}
+                {% set daysRunning = test.startedAt ? max(1, stats.daysRunning) : 0 %}
                 {% if stats.totalVisitors == 0 %}
                     <strong>No visitors yet.</strong> Start driving traffic to your test page to collect data.
                 {% elseif stats.isSignificant %}
