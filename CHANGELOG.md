@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.1.0] - Unreleased
+## [1.1.0] - 2026-11-26
 
 > [!IMPORTANT]
 > Conversions now count wherever on the site a visitor completes them after being assigned to a test, not only on the tested page. This is standard A/B test attribution and counts landing page → contact page → thank-you page journeys that were missed before. If you use Blitz or a CDN, refresh the cache once after updating so cached pages include the new page-visit beacon.
