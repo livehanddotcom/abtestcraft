@@ -13,8 +13,9 @@ use livehand\abtestcraft\models\Test;
 /**
  * Decides which requests take part in tests.
  *
- * Previews, known bots and (by default) people logged in with control panel
- * access see the control and aren't assigned or counted. Without this,
+ * Previews, known bots, (by default) people logged in with control panel
+ * access and (in consent mode) visitors without consent see the control and
+ * aren't assigned or counted. Without this,
  * crawlers (which don't keep cookies) became a new visitor on every request,
  * and editors checking their own pages skewed the results.
  *
@@ -52,7 +53,8 @@ class VisitorFilterService extends Component
     {
         return $this->excluded ??= $this->isPreviewRequest()
             || $this->isBot()
-            || $this->isExcludedControlPanelUser();
+            || $this->isExcludedControlPanelUser()
+            || !ABTestCraft::getInstance()->consent->hasConsent();
     }
 
     /**

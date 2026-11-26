@@ -137,12 +137,23 @@
                                     <span class="status live"></span> Running
                                 {% case 'paused' %}
                                     <span class="status"></span> Paused
+                                    {% if test.guardrailTriggeredAt %}
+                                        <div class="light">By its safety guardrail</div>
+                                    {% endif %}
                                 {% case 'completed' %}
                                     <span class="status off"></span> Completed
                                     {% if test.winnerVariant %}
                                         <div class="light">{{ test.winnerVariant|capitalize }} won</div>
                                     {% endif %}
+                                    {% if test.isServingWinner() %}
+                                        <div class="light">Variant shown to everyone</div>
+                                    {% endif %}
                             {% endswitch %}
+                            {% if test.status in ['draft', 'paused'] and test.scheduledStartAt %}
+                                <div class="light">Starts {{ test.scheduledStartAt|datetime('short') }}</div>
+                            {% elseif test.status == 'running' and test.scheduledEndAt %}
+                                <div class="light">Ends {{ test.scheduledEndAt|datetime('short') }}</div>
+                            {% endif %}
                         </td>
                         <td>
                             {% if test.status == 'draft' %}

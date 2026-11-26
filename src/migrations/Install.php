@@ -60,6 +60,14 @@ class Install extends Migration
             'endedAt' => $this->dateTime()->null(),
             'winnerVariant' => $this->string(20)->null(), // control, variant, or null
             'significanceNotifiedAt' => $this->dateTime()->null(), // From m250110_000002
+            // From m261126_000002 (scheduling, serving the winner, auto-stop, guardrail)
+            'scheduledStartAt' => $this->dateTime()->null(),
+            'scheduledEndAt' => $this->dateTime()->null(),
+            'serveWinner' => $this->boolean()->notNull()->defaultValue(false),
+            'whenWinnerFound' => $this->string(20)->notNull()->defaultValue('notify'),
+            'guardrail' => $this->json()->null(),
+            'guardrailTriggeredAt' => $this->dateTime()->null(),
+            'guardrailMessage' => $this->text()->null(),
             'dateCreated' => $this->dateTime()->notNull(),
             'dateUpdated' => $this->dateTime()->notNull(),
             'dateDeleted' => $this->dateTime()->null(), // From m250110_000001 (soft deletes)
@@ -108,6 +116,16 @@ class Install extends Migration
             // whose first conversion of that goal type (or any type, on the null row) was that day
             'visitors' => $this->integer()->notNull()->defaultValue(0),
             'convertedVisitors' => $this->integer()->notNull()->defaultValue(0),
+            'dateCreated' => $this->dateTime()->notNull(),
+            'dateUpdated' => $this->dateTime()->notNull(),
+            'uid' => $this->uid(),
+        ]);
+
+        // Plugin state, e.g. when the weekly summary was last sent (from m261126_000002)
+        $this->createTable('{{%abtestcraft_state}}', [
+            'id' => $this->primaryKey(),
+            'key' => $this->string(100)->notNull(),
+            'value' => $this->text()->null(),
             'dateCreated' => $this->dateTime()->notNull(),
             'dateUpdated' => $this->dateTime()->notNull(),
             'uid' => $this->uid(),
@@ -184,6 +202,9 @@ class Install extends Migration
 
         // Visitor goals
         $this->createIndex(null, '{{%abtestcraft_visitor_goals}}', ['testId', 'visitorId', 'goalType'], true);
+
+        // Plugin state
+        $this->createIndex(null, '{{%abtestcraft_state}}', ['key'], true);
 
         // Test descendants indexes (from m250110_000001_add_cascade_descendants_table)
         $this->createIndex(null, '{{%abtestcraft_test_descendants}}', ['testId']);
@@ -347,6 +368,7 @@ class Install extends Migration
 
     protected function dropTables(): void
     {
+        $this->dropTableIfExists('{{%abtestcraft_state}}');
         $this->dropTableIfExists('{{%abtestcraft_visitor_goals}}');
         $this->dropTableIfExists('{{%abtestcraft_test_descendants}}');
         $this->dropTableIfExists('{{%abtestcraft_rate_limits}}');

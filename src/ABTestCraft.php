@@ -32,6 +32,9 @@ use livehand\abtestcraft\services\NotificationService;
 use livehand\abtestcraft\services\PageCacheService;
 use livehand\abtestcraft\services\PageVisitService;
 use livehand\abtestcraft\services\VisitorFilterService;
+use livehand\abtestcraft\services\ConsentService;
+use livehand\abtestcraft\services\TestRulesService;
+use livehand\abtestcraft\services\StateService;
 use livehand\abtestcraft\services\RoutingService;
 use livehand\abtestcraft\services\SeoService;
 use livehand\abtestcraft\services\StatsService;
@@ -66,10 +69,13 @@ use yii\base\Event;
  * @property PageCacheService $pageCache
  * @property PageVisitService $pageVisits
  * @property VisitorFilterService $visitorFilter
+ * @property ConsentService $consent
+ * @property TestRulesService $rules
+ * @property StateService $state
  */
 class ABTestCraft extends BasePlugin
 {
-    public string $schemaVersion = '1.5.0';
+    public string $schemaVersion = '1.6.0';
     public bool $hasCpSettings = true;
     public bool $hasCpSection = true;
 
@@ -93,6 +99,9 @@ class ABTestCraft extends BasePlugin
                 'pageCache' => PageCacheService::class,
                 'pageVisits' => PageVisitService::class,
                 'visitorFilter' => VisitorFilterService::class,
+                'consent' => ConsentService::class,
+                'rules' => TestRulesService::class,
+                'state' => StateService::class,
             ],
         ];
     }
@@ -125,6 +134,16 @@ class ABTestCraft extends BasePlugin
         return new Settings();
     }
 
+    /**
+     * Consent settings change the script on every page: refresh Blitz's
+     * cache so cached pages get it
+     */
+    public function afterSaveSettings(): void
+    {
+        parent::afterSaveSettings();
+        $this->pageCache->clearAllIfPageScriptChanged();
+    }
+
     protected function settingsHtml(): ?string
     {
         return Craft::$app->view->renderTemplate('abtestcraft/settings', [
@@ -154,6 +173,7 @@ class ABTestCraft extends BasePlugin
                 Cp::EVENT_REGISTER_ALERTS,
                 function (RegisterCpAlertsEvent $event) {
                     $this->registerLicenseAlert($event);
+                    $this->registerEmailAlert($event);
                 }
             );
         }
@@ -226,6 +246,15 @@ class ABTestCraft extends BasePlugin
             );
         }
 
+        // Scheduled starts/ends, guardrails, auto-stop and the weekly summary:
+        // checked at most once a minute after web requests (or from cron with
+        // `./craft abtestcraft/tests/run-scheduled`)
+        if (!Craft::$app->getRequest()->getIsConsoleRequest()) {
+            Craft::$app->on(\yii\base\Application::EVENT_AFTER_REQUEST, function () {
+                $this->rules->maybeTick();
+            });
+        }
+
         // Count smart-mode form goals when Freeform/Formie accept a submission
         $this->formSubmissions->registerEventHandlers();
 
@@ -283,7 +312,9 @@ class ABTestCraft extends BasePlugin
             return;
         }
 
-        $script = $this->pageVisits->getBeaconScript() . "\n";
+        // Consent mode script (empty unless consent is required) and the
+        // page-visit beacon: both identical for every visitor, so cache-safe
+        $script = $this->consent->getConsentScript() . $this->pageVisits->getBeaconScript() . "\n";
 
         // An editor previewing a variant (?abtestcraft=variant) isn't tracked
         if ($this->routing->hasActiveTest() && !$this->routing->isEditorPreview()) {
@@ -383,6 +414,29 @@ class ABTestCraft extends BasePlugin
         }
 
         $event->alerts[] = $message;
+    }
+
+    /**
+     * Warn when emails are switched on but there's no address to send them
+     * to (guardrail and schedule emails use the same addresses)
+     */
+    private function registerEmailAlert(RegisterCpAlertsEvent $event): void
+    {
+        if (!$this->isPluginCpPage() || $this->notifications->hasRecipients()) {
+            return;
+        }
+
+        $settings = $this->getSettings();
+        if (!$settings->sendSignificanceEmail && !$settings->sendWeeklySummary) {
+            return;
+        }
+
+        $event->alerts[] = Craft::t(
+            'abtestcraft',
+            'ABTestCraft emails are switched on, but no notification address is set, so none are being sent '
+            . '(including safety guardrail and schedule emails).'
+        ) . ' <a class="go" href="' . UrlHelper::cpUrl('settings/plugins/abtestcraft') . '">'
+            . Craft::t('abtestcraft', 'Add an address') . '</a>';
     }
 
     /**

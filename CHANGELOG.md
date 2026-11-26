@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - Unreleased
+
+### Added
+- **Scheduling**: tests can start and end at set times. Schedules are checked during site traffic (at most once a minute) and by the new `./craft abtestcraft/tests/run-scheduled` command for cron. A scheduled start that can't happen clears the schedule and emails why.
+- **Show the winner to everyone**: when the variant wins, it can be shown to everyone on the original page's URL (no cookies or tracking, cacheable, child pages included), by hand from the results page or when ending a test. Stop showing it at any time.
+- **When a Winner Is Found** (per test): email only (default), end the test, or end it and show the winning variant to everyone. Only acts once a winner can be called.
+- **Safety Guardrail** (per test, optional): pauses a test (or ends it with the original as the winner) when the variant converts at least a chosen percentage worse (25% by default) on a chosen goal, the drop is very unlikely to be chance (99% confidence by default, on a sequential test that stays reliable when checked continuously), and there's enough data (250 visitors per version and 25 conversions by default). The percentage, goal, strictness and minimums are adjustable. The results page shows its status, and the form explains that on lower-traffic sites it often won't trigger until each version has a few thousand visitors.
+- **Consent mode** (setting, off by default): only visitors who've given consent take part; everyone else sees the original page, gets no cookies and isn't counted, and visitors who withdraw consent are taken out of tests. Consent comes from Google Consent Mode (`analytics_storage` by default), a consent banner's cookie (Cookiebot, CookieYes, Complianz, OneTrust or custom), or `ABTestCraft.setConsent()`.
+- Emails when the safety guardrail acts, when a winner is applied automatically, and when a schedule starts, ends or can't start.
+- **Weekly summary** email on Monday mornings (off by default).
+- A warning on ABTestCraft's control panel pages when emails are switched on but no notification address is set.
+- Microsoft Clarity sessions are tagged with each visitor's version (`abtestcraft_<test handle>`).
+
+### Changed
+- The "has a winner" email is sent once per test. It could repeat every hour while a test kept getting conversions.
+- Saving consent settings in the control panel refreshes the Blitz cache, since the script on every page changes.
+
+### Fixed
+- Fixed the trashed date, conversion dates and the `cleanup` cutoff being written in the site's timezone while dates are read as UTC.
+
 ## [1.2.0] - 2026-11-26
 
 > [!IMPORTANT]

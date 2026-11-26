@@ -141,7 +141,7 @@ class TrackingService extends Component
         $visitorRecord->converted = true;
         $visitorRecord->conversionType = $conversionType;
         $visitorRecord->goalId = $goalId;
-        $visitorRecord->dateConverted = (new DateTime())->format('Y-m-d H:i:s');
+        $visitorRecord->dateConverted = Db::prepareDateForDb(new DateTime());
 
         if (!$visitorRecord->save()) {
             Craft::warning(
@@ -358,11 +358,16 @@ class TrackingService extends Component
     }
 
     /**
-     * Check if test has reached statistical significance and notify if enabled
-     * Delegates to NotificationService for actual notification handling
+     * After a conversion: the safety guardrail, "When a winner is found" and
+     * the winner email (see TestRulesService)
      */
     private function checkSignificance(Test $test): void
     {
-        ABTestCraft::getInstance()->notifications->checkAndNotifySignificance($test);
+        try {
+            ABTestCraft::getInstance()->rules->checkTest($test);
+        } catch (\Throwable $e) {
+            // The conversion is already counted
+            Craft::error("Checking test '{$test->handle}' after a conversion failed: " . $e->getMessage(), __METHOD__);
+        }
     }
 }

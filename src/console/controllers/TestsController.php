@@ -7,6 +7,7 @@ namespace livehand\abtestcraft\console\controllers;
 use Craft;
 use craft\console\Controller;
 use craft\db\Query;
+use craft\helpers\Db;
 use livehand\abtestcraft\models\Test;
 use livehand\abtestcraft\ABTestCraft;
 use yii\console\ExitCode;
@@ -227,7 +228,8 @@ class TestsController extends Controller
             }
         }
 
-        $cutoffDate = (new \DateTime())->modify("-{$this->days} days")->format('Y-m-d H:i:s');
+        // Stored dates are UTC
+        $cutoffDate = Db::prepareDateForDb((new \DateTime())->modify("-{$this->days} days"));
         $totalDeleted = 0;
 
         foreach ($completedTests as $test) {
@@ -312,6 +314,28 @@ class TestsController extends Controller
             fputcsv($stream, $row, ',', '"', '');
         }
         fclose($stream);
+
+        return ExitCode::OK;
+    }
+
+    /**
+     * Run scheduled starts and ends, safety guardrails, "When a winner is
+     * found" and the weekly summary now. They also run during normal site
+     * traffic (at most once a minute); run this from cron every few minutes
+     * so they happen on time on quiet sites.
+     *
+     * Usage: ./craft abtestcraft/tests/run-scheduled
+     */
+    public function actionRunScheduled(): int
+    {
+        $log = ABTestCraft::getInstance()->rules->tick();
+
+        if ($log === []) {
+            $this->stdout("Nothing to do.\n");
+        }
+        foreach ($log as $line) {
+            $this->stdout("{$line}\n");
+        }
 
         return ExitCode::OK;
     }

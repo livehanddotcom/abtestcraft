@@ -150,6 +150,16 @@
             margin-bottom: 24px;
             line-height: 1.5;
         }
+        .st-guardrail {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            color: #334155;
+            padding: 12px 20px;
+            margin-bottom: 24px;
+            line-height: 1.5;
+            font-size: 13px;
+        }
         .st-lift-positive { color: var(--st-green); font-weight: 600; }
         .st-lift-negative { color: var(--st-red); font-weight: 600; }
     </style>
@@ -182,6 +192,29 @@
                         </div>
                     {% endif %}
 
+                    {% if test.winnerVariant == 'variant' %}
+                        <div style="margin: 0 auto 16px; max-width: 640px; padding: 12px 16px; border-radius: 6px; {{ test.isServingWinner() ? 'background: #dcfce7; color: #166534;' : 'background: #f1f5f9; color: #475569;' }}">
+                            {% if test.isServingWinner() %}
+                                <strong>The variant is shown to everyone</strong> on
+                                {% set controlUrl = test.controlEntry ? test.controlEntry.url : null %}
+                                {% if controlUrl %}<a href="{{ controlUrl }}" target="_blank">the original page</a>{% else %}the original page{% endif %}
+                                (no cookies or tracking). To make it permanent, copy the variant's content into the original entry, then stop showing it.
+                            {% else %}
+                                Everyone sees the original page. You can show the winning variant to everyone instead.
+                            {% endif %}
+                            {% if currentUser.can('abtestcraft:manageTests') %}
+                                <form method="post" style="margin: 8px 0 0;">
+                                    {{ csrfInput() }}
+                                    {{ actionInput('abtestcraft/tests/serve-winner') }}
+                                    {{ redirectInput('abtestcraft/tests/' ~ test.id ~ '/results') }}
+                                    <input type="hidden" name="testId" value="{{ test.id }}">
+                                    <input type="hidden" name="serve" value="{{ test.isServingWinner() ? '0' : '1' }}">
+                                    <button type="submit" class="btn small">{{ test.isServingWinner() ? 'Stop showing the variant' : 'Show the variant to everyone' }}</button>
+                                </form>
+                            {% endif %}
+                        </div>
+                    {% endif %}
+
                     <div style="color: #8f98a3; font-size: 14px;">
                         {% set duration = test.getDurationDays() %}
                         {% if duration %}
@@ -208,6 +241,12 @@
                                     <span class="status"></span> Test Draft
                             {% endswitch %}
                         </h2>
+                        {% if test.scheduledStartAt and test.status != 'running' %}
+                            <p class="light" style="margin: 8px 0 0;">Scheduled to start {{ test.scheduledStartAt|datetime('short') }}</p>
+                        {% endif %}
+                        {% if test.scheduledEndAt %}
+                            <p class="light" style="margin: 8px 0 0;">Scheduled to end {{ test.scheduledEndAt|datetime('short') }}</p>
+                        {% endif %}
                         {% if timeEstimate and not timeEstimate.reached %}
                             <p class="light" style="margin: 8px 0 0;">
                                 About {{ timeEstimate.daysRemaining }} more day{{ timeEstimate.daysRemaining != 1 ? 's' }} until a result can be called
@@ -238,11 +277,51 @@
                                 <button type="submit" name="winner" value="control" class="btn" style="background: #dbeafe; border-color: #93c5fd; color: #1e40af;">Control Wins</button>
                                 <button type="submit" name="winner" value="variant" class="btn" style="background: #dcfce7; border-color: #86efac; color: #166534;">Variant Wins</button>
                             </form>
+                            <form method="post" style="margin: 0;">
+                                {{ csrfInput() }}
+                                {{ actionInput('abtestcraft/tests/complete') }}
+                                {{ redirectInput('abtestcraft/tests/' ~ test.id ~ '/results') }}
+                                <input type="hidden" name="testId" value="{{ test.id }}">
+                                <input type="hidden" name="winner" value="variant">
+                                <input type="hidden" name="serveWinner" value="1">
+                                <button type="submit" class="btn" style="background: #166534; border-color: #166534; color: #fff;" title="End the test and show the variant to everyone on the original page">Variant Wins, Show It to Everyone</button>
+                            </form>
                         {% endif %}
                     </div>
                 </div>
             {% endif %}
         </div>
+
+        {# Safety guardrail #}
+        {% set guard = stats.guardrail %}
+        {% if guard.status == 'triggered' %}
+            <div class="st-warning">
+                <strong>The safety guardrail {{ test.status == 'paused' ? 'paused' : 'ended' }} this test{% if test.guardrailTriggeredAt %} on {{ test.guardrailTriggeredAt|datetime('short') }}{% endif %}.</strong>
+                {{ test.guardrailMessage }}
+                Every visitor sees the original page.
+                {% if test.status == 'paused' %}
+                    If you start the test again with the same guardrail settings, it will pause again unless the results change.
+                {% endif %}
+            </div>
+        {% elseif guard.status != 'off' and test.status != 'completed' %}
+            <div class="st-guardrail">
+                <strong>Safety guardrail:</strong>
+                {% if guard.status == 'waiting' %}
+                    waiting for enough data before it can act
+                    ({{ min(guard.visitors.control, guard.visitors.variant) }} of {{ guard.minVisitors }} visitors per version,
+                    {{ guard.converted.control }} of {{ guard.minConversions }} conversions on the original).
+                {% else %}
+                    watching. It pauses the test if the variant converts at least {{ guard.drop }}% worse on {{ guard.goalLabel }}
+                    and the drop is very unlikely to be chance.
+                    {% if guard.observedDrop is not null %}
+                        Right now the variant is {{ guard.observedDrop > 0 ? guard.observedDrop ~ '% behind' : (guard.observedDrop|abs) ~ '% ahead' }}.
+                    {% endif %}
+                {% endif %}
+                {% if guard.typicalVisitorsNeeded %}
+                    <span class="light">At the current conversion rate, it typically can't confirm a {{ guard.drop }}% drop before about {{ guard.typicalVisitorsNeeded|number }} visitors per version.</span>
+                {% endif %}
+            </div>
+        {% endif %}
 
         {# Sample ratio mismatch: the split itself is off #}
         {% if stats.srm and stats.srm.detected %}

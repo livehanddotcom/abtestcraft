@@ -36,10 +36,52 @@ class Test extends Model
     public ?DateTime $endedAt = null;
     public ?string $winnerVariant = null;
     public ?DateTime $significanceNotifiedAt = null;
+
+    /** @var DateTime|null Start the test automatically at this time */
+    public ?DateTime $scheduledStartAt = null;
+
+    /** @var DateTime|null End the test automatically at this time */
+    public ?DateTime $scheduledEndAt = null;
+
+    /** @var bool Completed with the variant as winner: show it to everyone */
+    public bool $serveWinner = false;
+
+    /** @var string What happens when a winner is found (WINNER_* constants) */
+    public string $whenWinnerFound = self::WINNER_NOTIFY;
+
+    /** @var array|null Safety guardrail settings (see getGuardrail()) */
+    public ?array $guardrail = null;
+
+    public ?DateTime $guardrailTriggeredAt = null;
+    public ?string $guardrailMessage = null;
+
     public ?DateTime $dateCreated = null;
     public ?DateTime $dateUpdated = null;
     public ?DateTime $dateDeleted = null;
     public ?string $uid = null;
+
+    // When a winner is found
+    public const WINNER_NOTIFY = 'notify';
+    public const WINNER_END = 'end';
+    public const WINNER_SERVE = 'serve';
+
+    // Guardrail actions
+    public const GUARDRAIL_PAUSE = 'pause';
+    public const GUARDRAIL_END = 'end';
+
+    /** Guardrail strictness options (confidence levels) */
+    public const GUARDRAIL_CONFIDENCE_LEVELS = [0.995, 0.99, 0.975, 0.95];
+
+    /** Guardrail defaults: built to avoid false alarms */
+    public const GUARDRAIL_DEFAULTS = [
+        'enabled' => false,
+        'drop' => 25,
+        'goalType' => null,
+        'confidence' => 0.99,
+        'minVisitors' => 250,
+        'minConversions' => 25,
+        'action' => self::GUARDRAIL_PAUSE,
+    ];
 
     // Status constants
     public const STATUS_DRAFT = 'draft';
@@ -85,6 +127,10 @@ class Test extends Model
             [['goalValue'], 'string', 'max' => 500],
             [['primaryGoalType'], 'in', 'range' => array_keys(Goal::getGoalTypeOptions()), 'skipOnEmpty' => true],
             [['winnerVariant'], 'in', 'range' => [self::VARIANT_CONTROL, self::VARIANT_VARIANT, null]],
+            [['whenWinnerFound'], 'in', 'range' => [self::WINNER_NOTIFY, self::WINNER_END, self::WINNER_SERVE]],
+            [['serveWinner'], 'boolean'],
+            [['scheduledEndAt'], 'validateSchedule'],
+            [['guardrail'], 'validateGuardrail'],
             [
                 ['handle'],
                 'match',
@@ -241,6 +287,89 @@ class Test extends Model
     public function hasEnabledGoals(): bool
     {
         return !empty($this->getEnabledGoals());
+    }
+
+    /**
+     * The end date must come after the start date
+     */
+    public function validateSchedule(string $attribute): void
+    {
+        if ($this->scheduledStartAt && $this->scheduledEndAt && $this->scheduledEndAt <= $this->scheduledStartAt) {
+            $this->addError($attribute, 'The end date must be after the start date.');
+        }
+    }
+
+    /**
+     * Guardrail settings within safe ranges
+     */
+    public function validateGuardrail(string $attribute): void
+    {
+        $guardrail = $this->getGuardrail();
+        if (!$guardrail['enabled']) {
+            return;
+        }
+
+        if ($guardrail['drop'] < 5 || $guardrail['drop'] > 90) {
+            $this->addError($attribute, 'The guardrail drop must be between 5% and 90%.');
+        }
+        if (!in_array($guardrail['confidence'], self::GUARDRAIL_CONFIDENCE_LEVELS, true)) {
+            $this->addError($attribute, 'Choose one of the guardrail strictness levels.');
+        }
+        if ($guardrail['minVisitors'] < 100) {
+            $this->addError($attribute, 'The guardrail needs at least 100 visitors per version before it can act.');
+        }
+        if ($guardrail['minConversions'] < 10) {
+            $this->addError($attribute, 'The guardrail needs at least 10 control conversions before it can act.');
+        }
+        if (!in_array($guardrail['action'], [self::GUARDRAIL_PAUSE, self::GUARDRAIL_END], true)) {
+            $this->addError($attribute, 'Choose what the guardrail does when it triggers.');
+        }
+        if ($guardrail['goalType'] !== null && !array_key_exists($guardrail['goalType'], Goal::getGoalTypeOptions())) {
+            $this->addError($attribute, 'Choose a valid goal for the guardrail.');
+        }
+    }
+
+    /**
+     * Guardrail settings with defaults filled in, and typed
+     *
+     * @return array{enabled: bool, drop: int, goalType: ?string, confidence: float, minVisitors: int,
+     *     minConversions: int, action: string}
+     */
+    public function getGuardrail(): array
+    {
+        $values = array_merge(self::GUARDRAIL_DEFAULTS, array_filter(
+            $this->guardrail ?? [],
+            fn($value) => $value !== null && $value !== ''
+        ));
+
+        return [
+            'enabled' => (bool) $values['enabled'],
+            'drop' => (int) $values['drop'],
+            'goalType' => $values['goalType'] ? (string) $values['goalType'] : null,
+            'confidence' => (float) $values['confidence'],
+            'minVisitors' => (int) $values['minVisitors'],
+            'minConversions' => (int) $values['minConversions'],
+            'action' => (string) $values['action'],
+        ];
+    }
+
+    /**
+     * The goal the guardrail watches: its own choice, or the primary goal
+     */
+    public function getGuardrailGoalType(): ?string
+    {
+        return $this->getGuardrail()['goalType'] ?? $this->primaryGoalType;
+    }
+
+    /**
+     * Whether a completed test is showing its variant to everyone
+     */
+    public function isServingWinner(): bool
+    {
+        return $this->status === self::STATUS_COMPLETED
+            && $this->serveWinner
+            && $this->winnerVariant === self::VARIANT_VARIANT
+            && $this->dateDeleted === null;
     }
 
     /**

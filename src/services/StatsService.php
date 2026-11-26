@@ -10,6 +10,7 @@ use craft\db\Query;
 use DateTime;
 use livehand\abtestcraft\ABTestCraft;
 use livehand\abtestcraft\helpers\Statistics;
+use livehand\abtestcraft\models\Goal;
 use livehand\abtestcraft\models\Test;
 
 /**
@@ -91,6 +92,17 @@ class StatsService extends Component
         }
 
         return $stats;
+    }
+
+    /**
+     * Stats without the per-day breakdown (one query): used after each
+     * conversion and by the scheduled check
+     */
+    public function getSummaryStats(Test $test): array
+    {
+        $totals = $this->loadTotals([(int) $test->id]);
+
+        return $this->buildStats($test, $totals[$test->id] ?? []);
     }
 
     /**
@@ -231,6 +243,8 @@ class StatsService extends Component
             'goalStats' => $this->getGoalStats($totals, $visitors),
         ];
 
+        $stats['guardrail'] = $this->evaluateGuardrail($test, $totals, $visitors);
+
         $stats['timeEstimate'] = $this->estimateTime($test, $stats);
 
         return $stats;
@@ -262,6 +276,98 @@ class StatsService extends Component
         }
 
         return $goalStats;
+    }
+
+    /**
+     * The safety guardrail's state for a test.
+     *
+     * It triggers only when all of these hold, so it doesn't raise false
+     * alarms (especially on low-traffic sites, where it simply waits):
+     * - each version has the minimum number of visitors, and the control the
+     *   minimum number of conversions on the guardrail goal
+     * - the variant's conversion rate is at least the chosen percentage lower
+     * - the drop is significant on a sequential test that stays valid when
+     *   checked continuously (mSPRT) at the chosen confidence
+     *
+     * @return array{status: string, shouldTrigger: bool, goalLabel: string, drop: int, confidence: float,
+     *     minVisitors: int, minConversions: int, visitors: array, converted: array, observedDrop: ?float,
+     *     typicalVisitorsNeeded: ?int}
+     */
+    private function evaluateGuardrail(Test $test, array $totals, array $visitors): array
+    {
+        $settings = $test->getGuardrail();
+        $goalType = $test->getGuardrailGoalType();
+        $goalKey = $goalType ?? TrackingService::ANY_GOAL;
+
+        $converted = [];
+        foreach (self::VARIANTS as $variant) {
+            $converted[$variant] = $totals[$variant][$goalKey]['convertedVisitors'] ?? 0;
+        }
+
+        $controlRate = $visitors[Test::VARIANT_CONTROL] > 0
+            ? $converted[Test::VARIANT_CONTROL] / $visitors[Test::VARIANT_CONTROL]
+            : 0.0;
+        $variantRate = $visitors[Test::VARIANT_VARIANT] > 0
+            ? $converted[Test::VARIANT_VARIANT] / $visitors[Test::VARIANT_VARIANT]
+            : 0.0;
+        $observedDrop = $controlRate > 0 ? ($controlRate - $variantRate) / $controlRate : null;
+
+        $result = [
+            'status' => 'off',
+            'shouldTrigger' => false,
+            'goalLabel' => $goalType === null
+                ? 'any goal'
+                : strtolower(Goal::getGoalTypeOptions()[$goalType]['label'] ?? $goalType),
+            'drop' => $settings['drop'],
+            'confidence' => $settings['confidence'],
+            'action' => $settings['action'],
+            'minVisitors' => $settings['minVisitors'],
+            'minConversions' => $settings['minConversions'],
+            'visitors' => $visitors,
+            'converted' => $converted,
+            'controlRate' => round($controlRate * 100, 2),
+            'variantRate' => round($variantRate * 100, 2),
+            'observedDrop' => $observedDrop !== null ? round($observedDrop * 100, 1) : null,
+            'typicalVisitorsNeeded' => $controlRate > 0
+                ? Statistics::sampleSizeForDrop($controlRate, $settings['drop'] / 100, $settings['confidence'])
+                : null,
+        ];
+
+        if (!$settings['enabled']) {
+            return $result;
+        }
+
+        if ($test->guardrailTriggeredAt !== null) {
+            $result['status'] = 'triggered';
+            return $result;
+        }
+
+        if (
+            min($visitors) < $settings['minVisitors']
+            || $converted[Test::VARIANT_CONTROL] < $settings['minConversions']
+        ) {
+            $result['status'] = 'waiting';
+            return $result;
+        }
+
+        $result['status'] = 'watching';
+
+        if ($observedDrop === null || $observedDrop * 100 < $settings['drop']) {
+            return $result;
+        }
+
+        // Most sensitive to a drop of the chosen size
+        $ratio = Statistics::mixtureSprtRatio(
+            $visitors[Test::VARIANT_CONTROL],
+            $converted[Test::VARIANT_CONTROL],
+            $visitors[Test::VARIANT_VARIANT],
+            $converted[Test::VARIANT_VARIANT],
+            $controlRate * $settings['drop'] / 100
+        );
+
+        $result['shouldTrigger'] = $ratio !== null && $ratio >= 1 / (1 - $settings['confidence']);
+
+        return $result;
     }
 
     /**

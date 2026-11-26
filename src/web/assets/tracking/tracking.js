@@ -708,6 +708,28 @@
                 'abtestcraft_variant': variant
             });
         }
+
+        tagClaritySession();
+    }
+
+    /**
+     * Tag the Microsoft Clarity session (recordings and heatmaps) with the
+     * visitor's version, as a custom tag named abtestcraft_<test handle>, so
+     * Clarity can be filtered by version. Only when Clarity is on the page;
+     * checks again after load, as Clarity's snippet is often loaded late.
+     */
+    function tagClaritySession() {
+        var tagged = false;
+        function tag() {
+            if (!tagged && typeof window.clarity === 'function') {
+                window.clarity('set', 'abtestcraft_' + testHandle, variant);
+                tagged = true;
+            }
+        }
+        tag();
+        if (!tagged) {
+            window.addEventListener('load', tag);
+        }
     }
 
     // Initialize when DOM is ready

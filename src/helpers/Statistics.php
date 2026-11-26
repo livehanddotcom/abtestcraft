@@ -156,6 +156,76 @@ final class Statistics
     }
 
     /**
+     * Mixture sequential probability ratio test (mSPRT) for a difference
+     * between two conversion rates, with the normal approximation used for
+     * continuously monitored experiments.
+     *
+     * Unlike a fixed-sample test, it can be checked after every visitor:
+     * declaring a difference whenever the ratio reaches 1/alpha keeps the
+     * chance of ever raising a false alarm at or below alpha, however often
+     * it's checked. Used by the safety guardrail, which only acts when the
+     * variant is the worse one, so its false-alarm rate is at most alpha.
+     *
+     * @param float $tau Spread of the mixing distribution: the size of
+     *     difference (as a proportion) the test is most sensitive to
+     * @return float|null The likelihood ratio, or null when either group has
+     *     no variance yet (no conversions, or all converted)
+     */
+    public static function mixtureSprtRatio(
+        int $visitorsA,
+        int $convertedA,
+        int $visitorsB,
+        int $convertedB,
+        float $tau,
+    ): ?float {
+        if ($visitorsA <= 0 || $visitorsB <= 0 || $tau <= 0) {
+            return null;
+        }
+
+        $rateA = $convertedA / $visitorsA;
+        $rateB = $convertedB / $visitorsB;
+        $variance = $rateA * (1 - $rateA) / $visitorsA + $rateB * (1 - $rateB) / $visitorsB;
+        if ($variance <= 0) {
+            return null;
+        }
+
+        $difference = $rateB - $rateA;
+        $tauSquared = $tau * $tau;
+        $exponent = $difference ** 2 * $tauSquared / (2 * $variance * ($variance + $tauSquared));
+
+        // Cap the exponent: past ~700 exp() overflows, and it's far beyond any threshold
+        return sqrt($variance / ($variance + $tauSquared)) * exp(min($exponent, 700.0));
+    }
+
+    /**
+     * Roughly how many visitors per group a one-sided test at the given
+     * confidence needs to detect a relative drop, with 80% power. A lower
+     * bound for the guardrail, whose continuously checked test needs more.
+     *
+     * @param float $baselineRate Control conversion rate as a proportion
+     * @param float $relativeDrop Drop to detect (0.25 = 25% lower)
+     * @param float $confidence One-sided confidence (0.99 = 99%)
+     */
+    public static function sampleSizeForDrop(float $baselineRate, float $relativeDrop, float $confidence): ?int
+    {
+        if ($baselineRate <= 0 || $baselineRate >= 1 || $relativeDrop <= 0 || $relativeDrop >= 1) {
+            return null;
+        }
+
+        // The same calculation as for an increase from the lower rate, at the
+        // two-sided confidence with the same one-sided error
+        try {
+            return self::sampleSizePerGroup(
+                $baselineRate * (1 - $relativeDrop),
+                $relativeDrop / (1 - $relativeDrop),
+                1 - 2 * (1 - $confidence)
+            );
+        } catch (\InvalidArgumentException) {
+            return null;
+        }
+    }
+
+    /**
      * Sample ratio mismatch: p-value of a chi-squared goodness-of-fit test of
      * the visitors in each group against the configured split. A tiny p-value
      * means the split itself is off (caching, redirects, bots), which makes the

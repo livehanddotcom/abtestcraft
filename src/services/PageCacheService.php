@@ -10,6 +10,7 @@ use craft\db\Query;
 use craft\elements\Entry;
 use craft\web\Response;
 use livehand\abtestcraft\models\Test;
+use livehand\abtestcraft\ABTestCraft;
 use yii\base\Event;
 
 /**
@@ -135,6 +136,33 @@ class PageCacheService extends Component
                 "ABTestCraft: Could not clear Blitz cache for test '{$test->handle}': " . $e->getMessage(),
                 __METHOD__
             );
+        }
+    }
+
+    /**
+     * Clear and purge Blitz's whole cache when the script ABTestCraft adds to
+     * every page has changed since the last check (consent mode switched on
+     * or off, or its signal changed), so cached pages get the new script.
+     * The first check only records the script.
+     */
+    public function clearAllIfPageScriptChanged(): void
+    {
+        $plugin = ABTestCraft::getInstance();
+        $fingerprint = md5($plugin->consent->getConsentScript() . $plugin->pageVisits->getBeaconScript());
+        $previous = $plugin->state->get('pageScriptFingerprint');
+        $plugin->state->set('pageScriptFingerprint', $fingerprint);
+
+        $blitz = $this->getBlitz();
+        if ($previous === null || $previous === $fingerprint || $blitz === null) {
+            return;
+        }
+
+        try {
+            $blitz->clearCache->clearAll();
+            $blitz->cachePurger->purgeAll();
+            Craft::info('ABTestCraft: page script changed, so the Blitz cache was cleared', __METHOD__);
+        } catch (\Throwable $e) {
+            Craft::warning('ABTestCraft: Could not clear the Blitz cache: ' . $e->getMessage(), __METHOD__);
         }
     }
 

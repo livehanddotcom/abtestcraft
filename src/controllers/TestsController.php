@@ -6,6 +6,7 @@ namespace livehand\abtestcraft\controllers;
 
 use Craft;
 use craft\elements\Entry;
+use craft\helpers\DateTimeHelper;
 use craft\helpers\UrlHelper;
 use craft\web\Controller;
 use livehand\abtestcraft\models\Test;
@@ -233,6 +234,24 @@ class TestsController extends Controller
         $test->primaryGoalType = $primaryGoalType !== '' ? $primaryGoalType : null;
         $primaryGoalDisabled = $test->primaryGoalType !== null
             && empty($goalsData[$test->primaryGoalType]['isEnabled']);
+
+        // Schedule (date/time fields post in the editor's timezone)
+        $test->scheduledStartAt = DateTimeHelper::toDateTime($request->getBodyParam('scheduledStartAt')) ?: null;
+        $test->scheduledEndAt = DateTimeHelper::toDateTime($request->getBodyParam('scheduledEndAt')) ?: null;
+
+        $test->whenWinnerFound = (string) $request->getBodyParam('whenWinnerFound', Test::WINNER_NOTIFY);
+
+        // Safety guardrail
+        $guardrail = (array) $request->getBodyParam('guardrail', []);
+        $test->guardrail = [
+            'enabled' => !empty($guardrail['enabled']),
+            'drop' => (int) ($guardrail['drop'] ?? Test::GUARDRAIL_DEFAULTS['drop']),
+            'goalType' => ($guardrail['goalType'] ?? '') !== '' ? (string) $guardrail['goalType'] : null,
+            'confidence' => (float) ($guardrail['confidence'] ?? Test::GUARDRAIL_DEFAULTS['confidence']),
+            'minVisitors' => (int) ($guardrail['minVisitors'] ?? Test::GUARDRAIL_DEFAULTS['minVisitors']),
+            'minConversions' => (int) ($guardrail['minConversions'] ?? Test::GUARDRAIL_DEFAULTS['minConversions']),
+            'action' => (string) ($guardrail['action'] ?? Test::GUARDRAIL_DEFAULTS['action']),
+        ];
 
         if ($primaryGoalDisabled || !ABTestCraft::getInstance()->tests->saveTest($test)) {
             if ($primaryGoalDisabled) {
@@ -613,15 +632,45 @@ class TestsController extends Controller
         $this->requirePermission('abtestcraft:manageTests');
 
         $test = $this->getPostedTest();
-        $winner = Craft::$app->getRequest()->getBodyParam('winner');
+        $winner = Craft::$app->getRequest()->getBodyParam('winner') ?: null;
+        $serveWinner = (bool) Craft::$app->getRequest()->getBodyParam('serveWinner');
 
-        if (!ABTestCraft::getInstance()->tests->completeTest($test, $winner)) {
+        if (!in_array($winner, [null, Test::VARIANT_CONTROL, Test::VARIANT_VARIANT], true)) {
+            throw new BadRequestHttpException('Invalid winner.');
+        }
+
+        if (!ABTestCraft::getInstance()->tests->completeTest($test, $winner, $serveWinner)) {
             Craft::$app->getSession()->setError('Could not complete test.');
             return $this->redirectToPostedUrl($test);
         }
 
         $this->clearTestCounts($test);
-        Craft::$app->getSession()->setNotice('Test completed.');
+        Craft::$app->getSession()->setNotice(
+            $test->isServingWinner() ? 'Test completed. The variant is now shown to everyone.' : 'Test completed.'
+        );
+        return $this->redirectToPostedUrl($test);
+    }
+
+    /**
+     * Show a completed test's winning variant to everyone, or stop
+     */
+    public function actionServeWinner(): Response
+    {
+        $this->requirePostRequest();
+        $this->requirePermission('abtestcraft:manageTests');
+
+        $test = $this->getPostedTest();
+        $serve = (bool) Craft::$app->getRequest()->getBodyParam('serve');
+
+        $result = ABTestCraft::getInstance()->tests->setServeWinner($test, $serve);
+        if ($result !== true) {
+            Craft::$app->getSession()->setError($result);
+            return $this->redirectToPostedUrl($test);
+        }
+
+        Craft::$app->getSession()->setNotice(
+            $serve ? 'The variant is now shown to everyone.' : 'Everyone now sees the original page again.'
+        );
         return $this->redirectToPostedUrl($test);
     }
 }

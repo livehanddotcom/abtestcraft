@@ -70,6 +70,9 @@ class RoutingService extends Component
         }
 
         if (!$test || !$test->isRunning()) {
+            // No running test here: the page may be showing a finished
+            // test's winning variant to everyone
+            $this->showServedWinner($event, $element);
             return;
         }
 
@@ -93,8 +96,10 @@ class RoutingService extends Component
             $variant = $previewVariant;
             $this->isEditorPreview = true;
         } elseif ($filter->shouldExcludeRequest()) {
-            // Previews, bots and control panel users see the control, with
-            // no assignment, cookies or impression
+            // Previews, bots, control panel users and visitors without consent
+            // see the control, with no assignment, cookies or impression.
+            // Visitors who withdrew consent also lose their cookies.
+            ABTestCraft::getInstance()->consent->removeCookiesWithoutConsent();
             return;
         } else {
             $variant = ABTestCraft::getInstance()->assignment->getOrAssignVariant($test);
@@ -128,6 +133,49 @@ class RoutingService extends Component
 
         if (!$this->isEditorPreview) {
             ABTestCraft::getInstance()->tracking->recordImpression($test, $variant);
+        }
+    }
+
+    /**
+     * Show a completed test's winning variant to everyone, on the original
+     * page and its child pages. Everyone gets the same page, so there are no
+     * cookies or tracking, and the page can be cached. Previews show the
+     * entry being previewed; editors can see the original with
+     * ?abtestcraft=control.
+     */
+    private function showServedWinner(TemplateEvent $event, Entry $element): void
+    {
+        $filter = ABTestCraft::getInstance()->visitorFilter;
+        if ($filter->isPreviewRequest() || $filter->getEditorPreviewVariant() === Test::VARIANT_CONTROL) {
+            return;
+        }
+
+        $tests = ABTestCraft::getInstance()->tests;
+
+        $test = $tests->getServingTestByControlEntryId($element->id, $element->siteId);
+        if ($test) {
+            $this->controlEntry = $element;
+            $this->swapToVariant($event, $test);
+            return;
+        }
+
+        $cascadeInfo = ABTestCraft::getInstance()->cascade->getCascadeInfo($element->id, $element->siteId, true);
+        if (!$cascadeInfo) {
+            return;
+        }
+
+        $test = $tests->getTestById($cascadeInfo['testId']);
+        if (!$test || !$test->isServingWinner()) {
+            return;
+        }
+
+        $variantParent = Entry::find()
+            ->id($cascadeInfo['variantAncestorId'])
+            ->siteId($element->siteId)
+            ->status(null)
+            ->one();
+        if ($variantParent) {
+            $this->overrideEntryParent($element, $variantParent);
         }
     }
 
