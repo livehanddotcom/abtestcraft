@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.2.0] - Unreleased
+## [1.2.0] - 2026-11-26
 
 > [!IMPORTANT]
 > Results are now calculated per visitor, so the numbers on existing tests change when you update. Conversion rates used to divide conversions from all goals by page views (every load of a tested page, including reloads and child pages), which understated rates and overstated confidence. A winner is now only called once a test has reached its planned sample size and run at least 7 days, so a test that showed "significant" before may now show "Collecting Data". Bots and logged-in control panel users are no longer counted from now on. Run `./craft up` after updating: the migration rebuilds visitor counts from your existing visitor records.
