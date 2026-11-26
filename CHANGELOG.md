@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - Unreleased
+
+### Added
+- Tests can now be deleted from the control panel: **Delete test** on a test's settings page moves it to a new **Trash** tab on the Tests page. Trashed tests stop running and keep their data; from the Trash tab you can restore them or delete them permanently, which also removes their results.
+
+### Changed
+- Restoring a test that was running when it was deleted brings it back paused, so visitors aren't sent to the variant again until you start it. Its pages are cleared from the Blitz cache when you start it, rather than when it's restored.
+
+### Fixed
+- Fixed there being no way to delete a test, or to restore or permanently delete one in the trash, from the control panel. A trashed test's handle couldn't be reused, and the error message pointed to options that didn't exist.
+- Fixed tests in the trash being editable, startable or completable by opening their URLs directly; their pages now send you to the Trash tab.
+- The tab counts on the Tests page now update right away after a test is saved, completed, deleted or restored, instead of up to a minute later.
+
 ## [1.0.1] - 2026-11-25
 
 ### Added

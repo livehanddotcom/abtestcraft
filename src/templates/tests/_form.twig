@@ -646,6 +646,16 @@ ABTestCraft.trackConversion('your-event-name');</code>
                 <a href="{{ url('abtestcraft/tests/' ~ test.id ~ '/results') }}" class="btn">View Results</a>
             {% endif %}
         </div>
+
+        <hr>
+
+        <div class="meta">
+            {# A link styled as a button, like Start/Pause, to avoid nesting a form in the page form #}
+            <a href="#" class="error delete-test-btn" data-test-id="{{ test.id }}"
+               data-confirm="{{ (test.isRunning
+                   ? 'Move “{name}” to the trash? It’s running, so it stops and visitors see the original page. You can restore it from the Trash tab.'
+                   : 'Move “{name}” to the trash? You can restore it from the Trash tab.')|t('abtestcraft', { name: test.name }) }}">Delete test</a>
+        </div>
     {% endif %}
 {% endblock %}
 
@@ -811,6 +821,24 @@ ABTestCraft.trackConversion('your-event-name');</code>
                 window.location.reload();
             }).catch(function(error) {
                 Craft.cp.displayError(error.response?.data?.message || 'Could not pause test.');
+            });
+        });
+
+        $('.delete-test-btn').on('click', function(e) {
+            e.preventDefault();
+            var $btn = $(this);
+
+            if (!window.confirm($btn.data('confirm'))) {
+                return;
+            }
+
+            Craft.sendActionRequest('POST', 'abtestcraft/tests/delete', {
+                data: { testId: $btn.data('test-id') }
+            }).then(function(response) {
+                // The server flashes "Test moved to the trash." for the next page
+                window.location.href = response.data.redirect || Craft.getCpUrl('abtestcraft/tests');
+            }).catch(function(error) {
+                Craft.cp.displayError(error.response?.data?.message || 'Could not delete test.');
             });
         });
     }

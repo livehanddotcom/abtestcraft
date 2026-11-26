@@ -222,7 +222,7 @@ You can install ABTestCraft from the Plugin Store as a free trial and use every 
 Variant assignment happens on the server when a page renders, so a page must not be served from a shared full-page cache while it's being tested. ABTestCraft handles this automatically:
 
 - **All setups**: pages with a running test (the control entry and its descendants) are sent with `Cache-Control: private, no-cache`, so CDNs and reverse proxies won't share one visitor's variant with everyone.
-- **Blitz**: detected automatically, no configuration needed. ABTestCraft tells Blitz not to cache tested pages (the control entry, its child pages, and the variant entry's own URL while it carries the test's `noindex`/canonical tags). Whenever a running test is saved, started or restored, it clears their existing Blitz cache, including query-string and paginated versions, and purges them through any configured purger such as Cloudflare. Blitz's cache generator is never assigned a variant or counted as an impression.
+- **Blitz**: detected automatically, no configuration needed. ABTestCraft tells Blitz not to cache tested pages (the control entry, its child pages, and the variant entry's own URL while it carries the test's `noindex`/canonical tags). Whenever a running test is started or saved, it clears their existing Blitz cache, including query-string and paginated versions, and purges them through any configured purger such as Cloudflare. Blitz's cache generator is never assigned a variant or counted as an impression.
 
 Only the pages under test skip the cache, and only while the test is running. Every other page stays cached as usual. When the test is paused or completed, its pages are cached again on the next visit.
 
@@ -246,16 +246,16 @@ The plugin creates the following tables that should be included in your backup s
 
 ### Data Retention
 
-- **Visitor data**: Kept until you remove it. `./craft abtestcraft/a-b-test-craft/cleanup` deletes visitor assignment records from completed tests (older than 90 days by default); impressions, conversions, conversion rates and significance come from the aggregated daily statistics and don't change, but the test's unique visitor counts and confidence intervals will then only reflect the visitors that remain. Deleting a test's records from the database removes all of its visitor data.
+- **Visitor data**: Kept until you remove it. `./craft abtestcraft/a-b-test-craft/cleanup` deletes visitor assignment records from completed tests (older than 90 days by default); impressions, conversions, conversion rates and significance come from the aggregated daily statistics and don't change, but the test's unique visitor counts and confidence intervals will then only reflect the visitors that remain. Permanently deleting a test removes all of its visitor data and results.
 - **Statistics**: Aggregated daily, raw impressions not stored
 - **Completed tests**: Remain in database for historical reference
-- **Deleted tests**: Moved to the trash (soft-deleted); their data stays in the database
+- **Deleted tests**: **Delete test** (on a test's settings page) moves it to the **Trash** tab, where it stops running and its data is kept. From there you can **Restore** it (a test that was running comes back paused) or **Delete permanently**, which removes the test and all its results and can't be undone.
 
 ### Archiving Old Data
 
 For high-traffic sites, consider periodically:
 1. Exporting completed test results (`./craft abtestcraft/a-b-test-craft/export <testId>`) to your analytics platform or records
-2. Running `./craft abtestcraft/a-b-test-craft/cleanup` to remove old visitor records from completed tests (after exporting, since it reduces their visitor counts)
+2. Running `./craft abtestcraft/a-b-test-craft/cleanup` to remove old visitor records from completed tests (after exporting, since it reduces their visitor counts), or deleting tests you no longer need and then deleting them permanently from the Trash tab
 3. Monitoring the `abtestcraft_rate_limits` table size (auto-cleans but verify)
 
 ### Backup Recommendations

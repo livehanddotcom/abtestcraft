@@ -601,6 +601,57 @@ class TestsServiceIntegrationTest extends Unit
     }
 
     /**
+     * A test trashed while running comes back paused, so restoring it never
+     * silently restarts the test; other statuses are restored unchanged.
+     */
+    public function testRestoreRunningTestComesBackPaused(): void
+    {
+        $trashedAt = (new DateTime())->format('Y-m-d H:i:s');
+        $running = $this->createTestRecord(['status' => Test::STATUS_RUNNING, 'dateDeleted' => $trashedAt]);
+        $completed = $this->createTestRecord(['status' => Test::STATUS_COMPLETED, 'dateDeleted' => $trashedAt]);
+
+        $runningTest = $this->service->getTestById($running->id);
+        $this->assertTrue($this->service->restoreTest($runningTest));
+        $this->assertSame(Test::STATUS_PAUSED, $runningTest->status);
+        $this->assertSame(Test::STATUS_PAUSED, TestRecord::findOne($running->id)->status);
+        $this->assertTrue($runningTest->canStart(), 'A restored test can be started again');
+
+        $completedTest = $this->service->getTestById($completed->id);
+        $this->assertTrue($this->service->restoreTest($completedTest));
+        $this->assertSame(Test::STATUS_COMPLETED, TestRecord::findOne($completed->id)->status);
+    }
+
+    /**
+     * Permanently deleting a test removes its goals, visitors and stats too
+     */
+    public function testHardDeleteRemovesRelatedData(): void
+    {
+        $record = $this->createTestRecord(['dateDeleted' => (new DateTime())->format('Y-m-d H:i:s')]);
+        $testId = $record->id;
+        $this->createdTestIds = array_filter($this->createdTestIds, fn($id) => $id !== $testId);
+
+        $db = Craft::$app->getDb();
+        $now = (new DateTime())->format('Y-m-d H:i:s');
+        $visitorId = StringHelper::UUID();
+        $this->createEnabledGoal($testId);
+        $db->createCommand()->insert('{{%abtestcraft_visitors}}', [
+            'testId' => $testId, 'visitorId' => $visitorId, 'variant' => 'control', 'converted' => false,
+            'dateCreated' => $now, 'dateUpdated' => $now, 'uid' => StringHelper::UUID(),
+        ])->execute();
+        $db->createCommand()->insert('{{%abtestcraft_visitor_goals}}', [
+            'testId' => $testId, 'visitorId' => $visitorId, 'goalType' => Goal::TYPE_PHONE,
+            'dateCreated' => $now, 'dateUpdated' => $now, 'uid' => StringHelper::UUID(),
+        ])->execute();
+
+        $this->assertTrue($this->service->hardDeleteTest($this->service->getTestById($testId)));
+
+        foreach (['abtestcraft_goals', 'abtestcraft_visitors', 'abtestcraft_visitor_goals'] as $table) {
+            $count = (new Query())->from("{{%{$table}}}")->where(['testId' => $testId])->count();
+            $this->assertEquals(0, $count, "{$table} rows should be deleted with the test");
+        }
+    }
+
+    /**
      * Test restoreTest fails for non-trashed test
      */
     public function testRestoreTestNotTrashed(): void
@@ -782,6 +833,7 @@ class TestsServiceIntegrationTest extends Unit
     public function testTrashedRunningTestIsNotServed(): void
     {
         $record = $this->createTestRecord(['status' => Test::STATUS_RUNNING]);
+        $this->createEnabledGoal($record->id); // so it can be started again after restoring
         $siteId = $record->siteId;
 
         $this->assertNotNull(
@@ -803,8 +855,14 @@ class TestsServiceIntegrationTest extends Unit
             ABTestCraft::getInstance()->tracking->recordConversionByHandle($record->handle, 'phone')
         );
 
-        // Restoring brings it back
-        $this->assertTrue($this->service->restoreTest($this->service->getTestById($record->id)));
+        // Restoring brings it back paused; it's served again once started
+        $restored = $this->service->getTestById($record->id);
+        $this->assertTrue($this->service->restoreTest($restored));
+        $this->assertNull(
+            $this->service->getTestByControlEntryId($record->controlEntryId, $siteId),
+            'A restored test is paused, not served'
+        );
+        $this->assertTrue($this->service->startTest($restored));
         $this->assertNotNull($this->service->getTestByControlEntryId($record->controlEntryId, $siteId));
     }
 

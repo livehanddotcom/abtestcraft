@@ -6,6 +6,7 @@ namespace livehand\abtestcraft\controllers;
 
 use Craft;
 use craft\elements\Entry;
+use craft\helpers\UrlHelper;
 use craft\web\Controller;
 use livehand\abtestcraft\models\Test;
 use livehand\abtestcraft\ABTestCraft;
@@ -31,26 +32,27 @@ class TestsController extends Controller
 
         // Get status filter from query param, default to 'active'
         $statusFilter = $request->getQueryParam('status', 'active');
-        if (!in_array($statusFilter, ['active', 'completed', 'all'])) {
+        if (!in_array($statusFilter, ['active', 'completed', 'all', 'trashed'], true)) {
             $statusFilter = 'active';
         }
 
         $tests = ABTestCraft::getInstance()->tests->getTestsByStatus($statusFilter, $siteId);
 
-        // Cache test counts for 60 seconds (changes infrequently)
-        $cacheKey = "abtestcraft_counts_{$siteId}";
-        $counts = Craft::$app->getCache()->getOrSet($cacheKey, function () use ($siteId) {
+        // Cache test counts for 60 seconds (cleared by actions that move tests between tabs)
+        $counts = Craft::$app->getCache()->getOrSet(self::countsCacheKey($siteId), function () use ($siteId) {
             return ABTestCraft::getInstance()->tests->getTestCounts($siteId);
         }, 60);
 
-        // Batch load stats for all tests in a single query
-        $batchStats = ABTestCraft::getInstance()->stats->getBatchTestStats($tests);
+        // Batch load stats for all tests in a single query (the Trash tab shows none)
+        $batchStats = $statusFilter === 'trashed'
+            ? []
+            : ABTestCraft::getInstance()->stats->getBatchTestStats($tests);
 
         $testsWithStats = [];
         foreach ($tests as $test) {
             // Get time estimate for running tests
             $timeEstimate = null;
-            if ($test->status === Test::STATUS_RUNNING) {
+            if ($test->isRunning()) {
                 $timeEstimate = ABTestCraft::getInstance()->stats->getTimeEstimate($test);
             }
             $testsWithStats[] = [
@@ -66,6 +68,7 @@ class TestsController extends Controller
             'counts' => $counts,
             'licenseInfo' => ABTestCraft::getInstance()->license->getStatusInfo(),
             'canCreateTests' => ABTestCraft::getInstance()->license->canCreateTests(),
+            'canManageTests' => Craft::$app->getUser()->checkPermission('abtestcraft:manageTests'),
         ]);
     }
 
@@ -129,6 +132,10 @@ class TestsController extends Controller
             throw new NotFoundHttpException('Test not found');
         }
 
+        if ($test->isTrashed()) {
+            return $this->redirectToTrash();
+        }
+
         // Get the entry objects for the element select fields
         $controlEntry = $test->controlEntryId
             ? Entry::find()->id($test->controlEntryId)->siteId($test->siteId)->status(null)->one()
@@ -158,6 +165,10 @@ class TestsController extends Controller
             throw new NotFoundHttpException('Test not found');
         }
 
+        if ($test->isTrashed()) {
+            return $this->redirectToTrash();
+        }
+
         $stats = ABTestCraft::getInstance()->stats->getTestStats($test);
         $timeEstimate = ABTestCraft::getInstance()->stats->getTimeEstimate($test);
 
@@ -180,10 +191,7 @@ class TestsController extends Controller
         $testId = $this->getTestIdParam(false);
 
         if ($testId) {
-            $test = ABTestCraft::getInstance()->tests->getTestById($testId);
-            if (!$test) {
-                throw new NotFoundHttpException('Test not found');
-            }
+            $test = $this->getPostedTest();
         } else {
             // Same license gate as the New Test page; a direct POST mustn't bypass it
             if (!ABTestCraft::getInstance()->license->canCreateTests()) {
@@ -250,6 +258,7 @@ class TestsController extends Controller
         $goalsData = $request->getBodyParam('goals', []);
         $this->saveGoalsFromRequest($test, $goalsData);
 
+        $this->clearTestCounts($test);
         Craft::$app->getSession()->setNotice('Test saved.');
 
         return $this->redirectToPostedUrl($test);
@@ -263,17 +272,8 @@ class TestsController extends Controller
         $this->requirePostRequest();
         $this->requirePermission('abtestcraft:manageTests');
 
-        $request = Craft::$app->getRequest();
-        $testId = $this->getTestIdParam();
-        $learnings = $request->getBodyParam('learnings');
-
-        $test = ABTestCraft::getInstance()->tests->getTestById($testId);
-
-        if (!$test) {
-            throw new NotFoundHttpException('Test not found');
-        }
-
-        $test->learnings = $learnings;
+        $test = $this->getPostedTest();
+        $test->learnings = Craft::$app->getRequest()->getBodyParam('learnings');
 
         if (!ABTestCraft::getInstance()->tests->saveTest($test)) {
             Craft::$app->getSession()->setError('Could not save learnings.');
@@ -306,6 +306,60 @@ class TestsController extends Controller
         }
 
         return (int) $value;
+    }
+
+    /**
+     * Load the test named by the posted testId.
+     *
+     * Tests in the trash must be restored before they can be saved, started,
+     * paused, completed or trashed again, so they're rejected unless
+     * $allowTrashed is set.
+     *
+     * @throws BadRequestHttpException|NotFoundHttpException
+     */
+    private function getPostedTest(bool $allowTrashed = false): Test
+    {
+        $test = ABTestCraft::getInstance()->tests->getTestById($this->getTestIdParam());
+
+        if (!$test) {
+            throw new NotFoundHttpException('Test not found');
+        }
+
+        if ($test->isTrashed() && !$allowTrashed) {
+            throw new BadRequestHttpException(
+                Craft::t('abtestcraft', 'This test is in the trash. Restore it first.')
+            );
+        }
+
+        return $test;
+    }
+
+    /**
+     * Send the user to the Trash tab when they open a trashed test's pages.
+     */
+    private function redirectToTrash(): Response
+    {
+        Craft::$app->getSession()->setError(
+            Craft::t('abtestcraft', 'This test is in the trash. Restore it to view or edit it.')
+        );
+
+        return $this->redirect(UrlHelper::cpUrl('abtestcraft/tests', ['status' => 'trashed']));
+    }
+
+    /**
+     * Cache key for the tab counts on the Tests page.
+     */
+    private static function countsCacheKey(int|string|null $siteId): string
+    {
+        return "abtestcraft_counts_{$siteId}";
+    }
+
+    /**
+     * Clear the cached tab counts after a test moves between tabs.
+     */
+    private function clearTestCounts(Test $test): void
+    {
+        Craft::$app->getCache()->delete(self::countsCacheKey($test->siteId));
     }
 
     /**
@@ -413,26 +467,78 @@ class TestsController extends Controller
     }
 
     /**
-     * Delete test
+     * Move a test to the trash (soft delete). A trashed test stops running.
      */
-    public function actionDelete(): Response
+    public function actionDelete(): ?Response
     {
         $this->requirePostRequest();
-        $this->requireAcceptsJson();
         $this->requirePermission('abtestcraft:manageTests');
 
-        $testId = $this->getTestIdParam();
-        $test = ABTestCraft::getInstance()->tests->getTestById($testId);
-
-        if (!$test) {
-            throw new NotFoundHttpException('Test not found');
-        }
+        $test = $this->getPostedTest();
 
         if (!ABTestCraft::getInstance()->tests->deleteTest($test)) {
-            return $this->asJson(['success' => false]);
+            return $this->asFailure(Craft::t('abtestcraft', 'Could not delete test.'));
         }
 
-        return $this->asJson(['success' => true]);
+        $this->clearTestCounts($test);
+
+        // Also flashed for JSON requests: the page redirects to the Tests list
+        // and shows it there
+        $message = Craft::t('abtestcraft', 'Test moved to the trash.');
+        Craft::$app->getSession()->setNotice($message);
+
+        return $this->asSuccess($message, ['success' => true], UrlHelper::cpUrl('abtestcraft/tests'));
+    }
+
+    /**
+     * Restore a test from the trash. A test that was running comes back paused.
+     */
+    public function actionRestore(): ?Response
+    {
+        $this->requirePostRequest();
+        $this->requirePermission('abtestcraft:manageTests');
+
+        $test = $this->getPostedTest(true);
+        // The stored status, not isRunning(): that's always false in the trash
+        $wasRunning = $test->status === Test::STATUS_RUNNING;
+
+        if (!ABTestCraft::getInstance()->tests->restoreTest($test)) {
+            return $this->asFailure(Craft::t('abtestcraft', 'Could not restore test.'));
+        }
+
+        $this->clearTestCounts($test);
+
+        return $this->asSuccess($wasRunning
+            ? Craft::t('abtestcraft', 'Test restored and paused. Start it again when you’re ready.')
+            : Craft::t('abtestcraft', 'Test restored.'));
+    }
+
+    /**
+     * Permanently delete a test from the trash, with all its results.
+     *
+     * Only trashed tests can be permanently deleted, so a test always passes
+     * through the trash first.
+     */
+    public function actionDeletePermanently(): ?Response
+    {
+        $this->requirePostRequest();
+        $this->requirePermission('abtestcraft:manageTests');
+
+        $test = $this->getPostedTest(true);
+
+        if (!$test->isTrashed()) {
+            throw new BadRequestHttpException(
+                Craft::t('abtestcraft', 'Only tests in the trash can be permanently deleted.')
+            );
+        }
+
+        if (!ABTestCraft::getInstance()->tests->hardDeleteTest($test)) {
+            return $this->asFailure(Craft::t('abtestcraft', 'Could not delete test.'));
+        }
+
+        $this->clearTestCounts($test);
+
+        return $this->asSuccess(Craft::t('abtestcraft', 'Test permanently deleted.'));
     }
 
     /**
@@ -443,12 +549,7 @@ class TestsController extends Controller
         $this->requirePostRequest();
         $this->requirePermission('abtestcraft:manageTests');
 
-        $testId = $this->getTestIdParam();
-        $test = ABTestCraft::getInstance()->tests->getTestById($testId);
-
-        if (!$test) {
-            throw new NotFoundHttpException('Test not found');
-        }
+        $test = $this->getPostedTest();
 
         $result = ABTestCraft::getInstance()->tests->startTest($test);
 
@@ -477,12 +578,7 @@ class TestsController extends Controller
         $this->requirePostRequest();
         $this->requirePermission('abtestcraft:manageTests');
 
-        $testId = $this->getTestIdParam();
-        $test = ABTestCraft::getInstance()->tests->getTestById($testId);
-
-        if (!$test) {
-            throw new NotFoundHttpException('Test not found');
-        }
+        $test = $this->getPostedTest();
 
         if (!ABTestCraft::getInstance()->tests->pauseTest($test)) {
             if (Craft::$app->getRequest()->getAcceptsJson()) {
@@ -508,21 +604,15 @@ class TestsController extends Controller
         $this->requirePostRequest();
         $this->requirePermission('abtestcraft:manageTests');
 
-        $request = Craft::$app->getRequest();
-        $testId = $this->getTestIdParam();
-        $winner = $request->getBodyParam('winner');
-
-        $test = ABTestCraft::getInstance()->tests->getTestById($testId);
-
-        if (!$test) {
-            throw new NotFoundHttpException('Test not found');
-        }
+        $test = $this->getPostedTest();
+        $winner = Craft::$app->getRequest()->getBodyParam('winner');
 
         if (!ABTestCraft::getInstance()->tests->completeTest($test, $winner)) {
             Craft::$app->getSession()->setError('Could not complete test.');
             return $this->redirectToPostedUrl($test);
         }
 
+        $this->clearTestCounts($test);
         Craft::$app->getSession()->setNotice('Test completed.');
         return $this->redirectToPostedUrl($test);
     }
