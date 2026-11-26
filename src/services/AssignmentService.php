@@ -116,11 +116,20 @@ class AssignmentService extends Component
     }
 
     /**
+     * The current visitor's ID from their cookie, without creating one.
+     * Null for visitors who were never assigned to a test.
+     */
+    public function getVisitorId(): ?string
+    {
+        return $this->getCookieValue(self::VISITOR_ID_COOKIE);
+    }
+
+    /**
      * Get visitor record for a test
      */
     public function getVisitorRecord(Test $test): ?VisitorRecord
     {
-        $visitorId = $this->getCookieValue(self::VISITOR_ID_COOKIE);
+        $visitorId = $this->getVisitorId();
 
         if (!$visitorId) {
             return null;

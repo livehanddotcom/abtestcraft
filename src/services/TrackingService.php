@@ -11,6 +11,7 @@ use craft\helpers\Db;
 use craft\helpers\StringHelper;
 use yii\db\Expression;
 use yii\db\IntegrityException;
+use livehand\abtestcraft\models\Goal;
 use livehand\abtestcraft\models\Settings;
 use livehand\abtestcraft\models\Test;
 use livehand\abtestcraft\records\VisitorRecord;
@@ -229,6 +230,17 @@ class TrackingService extends Component
 
         if (!$test || !$test->isRunning()) {
             return false;
+        }
+
+        // Smart-mode form goals are counted on the server when the form plugin
+        // accepts the submission (FormSubmissionService). Refuse browser reports
+        // of them, including from pages cached with an older tracking script,
+        // so a submission is never counted twice.
+        if ($conversionType === Goal::TYPE_FORM) {
+            $formGoal = ABTestCraft::getInstance()->goals->getGoalByTestAndType((int) $test->id, Goal::TYPE_FORM);
+            if ($formGoal && $formGoal->isSmartMode()) {
+                return false;
+            }
         }
 
         return $this->recordConversion($test, $conversionType, $goalId);

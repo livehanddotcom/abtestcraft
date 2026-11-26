@@ -206,7 +206,7 @@
                         <label>Select Form(s) to Track</label>
                     </div>
                     <div class="instructions">
-                        <p>Choose which form(s) should count as conversions. Leave all unchecked to track any form submission on the test page.</p>
+                        <p>Choose which form(s) should count as conversions. A selected form counts wherever a visitor in the test submits it, on any page of the site. Leave all unchecked to count any Freeform or Formie form, but only when it's submitted on the tested page.</p>
                     </div>
                     <div class="input" style="padding: 12px; background: #fff; border: 1px solid #e3e5e8; border-radius: 6px;">
                         {% if availableForms|length > 0 %}
@@ -227,7 +227,7 @@
                 </div>
 
                 <div style="padding: 12px; background: #d4edda; border-radius: 4px; color: #155724; font-size: 13px; margin-top: 12px;">
-                    <strong>Success detection is automatic</strong> when using Easy Mode. The plugin will use native events from your form plugin to detect successful submissions.
+                    <strong>Success detection is automatic</strong> when using Easy Mode. Submissions are counted on the server when your form plugin accepts them, so AJAX and page-reload forms both work, a redirect to a thank-you page doesn't matter, and submissions the form plugin flags as spam aren't counted.
                 </div>
             </div>
 

@@ -26,6 +26,7 @@ use livehand\abtestcraft\services\AssignmentService;
 use livehand\abtestcraft\services\AuditService;
 use livehand\abtestcraft\services\CascadeService;
 use livehand\abtestcraft\services\FormPluginDetectorService;
+use livehand\abtestcraft\services\FormSubmissionService;
 use livehand\abtestcraft\services\GoalsService;
 use livehand\abtestcraft\services\NotificationService;
 use livehand\abtestcraft\services\PageCacheService;
@@ -56,6 +57,7 @@ use yii\base\Event;
  * @property SeoService $seo
  * @property CascadeService $cascade
  * @property FormPluginDetectorService $formPluginDetector
+ * @property FormSubmissionService $formSubmissions
  * @property NotificationService $notifications
  * @property AuditService $audit
  * @property LicenseService $license
@@ -80,6 +82,7 @@ class ABTestCraft extends BasePlugin
                 'seo' => SeoService::class,
                 'cascade' => CascadeService::class,
                 'formPluginDetector' => FormPluginDetectorService::class,
+                'formSubmissions' => FormSubmissionService::class,
                 'notifications' => NotificationService::class,
                 'audit' => AuditService::class,
                 'license' => LicenseService::class,
@@ -216,6 +219,9 @@ class ABTestCraft extends BasePlugin
                 }
             );
         }
+
+        // Count smart-mode form goals when Freeform/Formie accept a submission
+        $this->formSubmissions->registerEventHandlers();
 
         // Register structure change handlers for cascade synchronization
         $this->registerCascadeEventHandlers();

@@ -140,6 +140,28 @@ class Goal extends Model
     }
 
     /**
+     * Whether this (smart mode) form goal covers a form. No forms selected
+     * means any Freeform or Formie form, but only when it's submitted on a
+     * tested page (see FormSubmissionService).
+     */
+    public function coversForm(string $pluginHandle, string $formHandle): bool
+    {
+        $selected = $this->getSelectedForms();
+
+        return $selected === [] || in_array("{$pluginHandle}:{$formHandle}", $selected, true);
+    }
+
+    /**
+     * Whether specific forms are selected. Selected forms count wherever the
+     * visitor submits them after being assigned; with none selected, only
+     * submissions on a tested page count.
+     */
+    public function hasSelectedForms(): bool
+    {
+        return $this->getSelectedForms() !== [];
+    }
+
+    /**
      * Get the form selector from config
      */
     public function getFormSelector(): ?string

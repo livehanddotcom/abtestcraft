@@ -32,14 +32,37 @@
     var defaultExtensions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'zip', 'rar', 'gz', 'tar'];
 
     /**
-     * Send conversion to server
+     * Send conversion to server, and push it to the dataLayer if enabled.
+     *
+     * Pass countOnServer = false for conversions the server records itself:
+     * smart-mode (Easy mode) form goals are counted when Freeform or Formie
+     * accepts the submission, so the browser only pushes the dataLayer event.
      */
-    function sendConversion(goalType, goalId) {
+    function sendConversion(goalType, goalId, countOnServer) {
         // Prevent duplicate conversions for the same goal type
         var key = goalType + '-' + (goalId || 'default');
         if (firedGoals[key]) return;
         firedGoals[key] = true;
 
+        if (countOnServer !== false) {
+            postConversion(goalType, goalId);
+        }
+
+        // Push to dataLayer for GA4 if enabled
+        if (enableDataLayer && typeof window.dataLayer !== 'undefined') {
+            window.dataLayer.push({
+                'event': 'abtestcraft_conversion',
+                'abtestcraft_name': testHandle,
+                'abtestcraft_variant': variant,
+                'conversion_type': goalType
+            });
+        }
+    }
+
+    /**
+     * POST a conversion to the tracking endpoint
+     */
+    function postConversion(goalType, goalId) {
         var data = new FormData();
         data.append('testHandle', testHandle);
         data.append('conversionType', goalType);
@@ -55,16 +78,6 @@
             var xhr = new XMLHttpRequest();
             xhr.open('POST', trackingEndpoint, true);
             xhr.send(data);
-        }
-
-        // Push to dataLayer for GA4 if enabled
-        if (enableDataLayer && typeof window.dataLayer !== 'undefined') {
-            window.dataLayer.push({
-                'event': 'abtestcraft_conversion',
-                'abtestcraft_name': testHandle,
-                'abtestcraft_variant': variant,
-                'conversion_type': goalType
-            });
         }
     }
 
@@ -175,7 +188,7 @@
             if (!form.querySelector('.freeform-form-success, .ff-form-success')) continue;
             if (!shouldTrackSmartForm(goalConfig, 'freeform', getFreeformHandle(form))) continue;
 
-            sendConversion('form', formGoal.id);
+            sendConversion('form', formGoal.id, false);
             return;
         }
     }
@@ -219,7 +232,7 @@
 
         if (!shouldTrackSmartForm(formGoal.config || {}, plugin, handle)) return;
 
-        sendConversion('form', formGoal.id);
+        sendConversion('form', formGoal.id, false);
     }
 
     /**
@@ -561,7 +574,7 @@
                 return;
             }
 
-            sendConversion('form', formGoal.id);
+            sendConversion('form', formGoal.id, false);
         });
 
         // Formie. Formie 3 and Formie 4 (with or without its compatibility
@@ -584,7 +597,7 @@
             if (isFormieNonFinalSubmit(form)) return;
             if (!shouldTrackSmartForm(goalConfig, 'formie', getFormieHandle(form))) return;
 
-            sendConversion('form', formGoal.id);
+            sendConversion('form', formGoal.id, false);
         }
 
         // AJAX forms: the submission result (Formie 3/4 compat:
@@ -604,7 +617,7 @@
 
             if (!shouldTrackSmartForm(goalConfig, 'formie', getFormieHandle(form))) return;
 
-            sendConversion('form', formGoal.id);
+            sendConversion('form', formGoal.id, false);
         }
 
         document.addEventListener('onFormieSubmit', handleFormiePageReloadSubmit, true);
