@@ -706,4 +706,164 @@ class TestsServiceIntegrationTest extends Unit
         $this->assertTrue($foundRunning, 'Running test should be in active tests');
         $this->assertFalse($foundDraft, 'Draft test should not be in active tests');
     }
+
+    // ========================================
+    // Handle uniqueness / string IDs
+    // ========================================
+
+    /**
+     * Build an unsaved Test with valid entry IDs
+     */
+    private function makeNewTest(string $handle): Test
+    {
+        [$controlEntryId, $variantEntryId] = $this->getValidEntryIds();
+
+        $test = new Test();
+        $test->siteId = Craft::$app->getSites()->getPrimarySite()->id;
+        $test->name = 'Handle Uniqueness Test';
+        $test->handle = $handle;
+        $test->controlEntryId = $controlEntryId;
+        $test->variantEntryId = $variantEntryId;
+
+        return $test;
+    }
+
+    /**
+     * A duplicate handle is a validation error, not a DB IntegrityException (HTTP 500)
+     */
+    public function testSaveTestRejectsDuplicateHandle(): void
+    {
+        $existing = $this->createTestRecord();
+
+        $test = $this->makeNewTest($existing->handle);
+
+        $this->assertFalse($this->service->saveTest($test));
+        $this->assertStringContainsString('already used', (string) $test->getFirstError('handle'));
+    }
+
+    /**
+     * Trashed tests still hold their handle (unique index covers them)
+     */
+    public function testSaveTestRejectsHandleOfTrashedTest(): void
+    {
+        $trashed = $this->createTestRecord([
+            'dateDeleted' => (new DateTime())->format('Y-m-d H:i:s'),
+        ]);
+
+        $test = $this->makeNewTest($trashed->handle);
+
+        $this->assertFalse($this->service->saveTest($test));
+        $this->assertStringContainsString('trash', (string) $test->getFirstError('handle'));
+    }
+
+    /**
+     * Re-saving a test must not flag its own handle as a duplicate
+     */
+    public function testSaveExistingTestKeepsOwnHandle(): void
+    {
+        $record = $this->createTestRecord();
+
+        // String ID, as it arrives from a CP form post (#1 / #5)
+        $test = $this->service->getTestById((string) $record->id);
+        $this->assertNotNull($test);
+        $this->assertSame($record->id, $test->id, 'Hydrated ID should be an int');
+
+        $test->name = 'Renamed';
+        $this->assertTrue($this->service->saveTest($test), json_encode($test->getErrors()));
+    }
+
+    // ========================================
+    // Trashed running tests are inert
+    // ========================================
+
+    /**
+     * Trashing a running test must stop it serving variants on the front end
+     */
+    public function testTrashedRunningTestIsNotServed(): void
+    {
+        $record = $this->createTestRecord(['status' => Test::STATUS_RUNNING]);
+        $siteId = $record->siteId;
+
+        $this->assertNotNull(
+            $this->service->getTestByControlEntryId($record->controlEntryId, $siteId),
+            'Running test should be found before trashing'
+        );
+
+        $test = $this->service->getTestById($record->id);
+        $this->assertTrue($this->service->deleteTest($test));
+
+        $this->assertNull(
+            $this->service->getTestByControlEntryId($record->controlEntryId, $siteId),
+            'Trashed test must not be served'
+        );
+        $this->assertFalse($this->service->getTestById($record->id)->isRunning());
+
+        // Conversions for a trashed test are ignored
+        $this->assertFalse(
+            ABTestCraft::getInstance()->tracking->recordConversionByHandle($record->handle, 'phone')
+        );
+
+        // Restoring brings it back
+        $this->assertTrue($this->service->restoreTest($this->service->getTestById($record->id)));
+        $this->assertNotNull($this->service->getTestByControlEntryId($record->controlEntryId, $siteId));
+    }
+
+    // ========================================
+    // Disabled entries (PR #7)
+    // ========================================
+
+    /**
+     * A disabled variant entry must still be returned: variants are normally
+     * kept disabled so they're only reachable through the test
+     */
+    public function testDisabledVariantEntryIsStillReturned(): void
+    {
+        $entry = \craft\elements\Entry::find()->status(null)->site('*')->one();
+        if (!$entry) {
+            $this->markTestSkipped('Needs at least one entry');
+        }
+
+        $db = Craft::$app->getDb();
+        $wasEnabled = (bool) (new Query())->select(['enabled'])->from('{{%elements_sites}}')
+            ->where(['elementId' => $entry->id, 'siteId' => $entry->siteId])->scalar();
+
+        $test = new Test();
+        $test->siteId = $entry->siteId;
+        $test->variantEntryId = $entry->id;
+        $test->controlEntryId = $entry->id;
+
+        try {
+            $db->createCommand()->update('{{%elements_sites}}', ['enabled' => false], [
+                'elementId' => $entry->id,
+                'siteId' => $entry->siteId,
+            ])->execute();
+
+            $this->assertNotNull($test->getVariantEntry(), 'Disabled variant entry should still load');
+            $this->assertNotNull($test->getControlEntry(), 'Disabled control entry should still load');
+        } finally {
+            $db->createCommand()->update('{{%elements_sites}}', ['enabled' => $wasEnabled], [
+                'elementId' => $entry->id,
+                'siteId' => $entry->siteId,
+            ])->execute();
+        }
+    }
+
+    /**
+     * significanceNotifiedAt must be loaded, or NotificationService's cooldown
+     * never applies and every conversion sends another significance email
+     */
+    public function testSignificanceNotifiedAtIsLoaded(): void
+    {
+        $record = $this->createTestRecord(['status' => Test::STATUS_RUNNING]);
+        Craft::$app->getDb()->createCommand()->update(
+            '{{%abtestcraft_tests}}',
+            ['significanceNotifiedAt' => '2026-01-02 03:04:05'],
+            ['id' => $record->id]
+        )->execute();
+
+        $test = $this->service->getTestById($record->id);
+
+        $this->assertNotNull($test->significanceNotifiedAt);
+        $this->assertSame('2026-01-02 03:04:05', $test->significanceNotifiedAt->format('Y-m-d H:i:s'));
+    }
 }

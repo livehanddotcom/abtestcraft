@@ -16,11 +16,40 @@ class LicenseService extends Component
     private const PLUGIN_HANDLE = 'abtestcraft';
 
     /**
+     * Memoized for web requests only (getPluginInfo() does a fair amount of
+     * work); long-running console processes such as queue workers re-read it
+     * so a purchased or revoked license is picked up.
+     */
+    private ?LicenseKeyStatus $status = null;
+
+    /**
      * Get the current license key status
+     *
+     * Craft 5 keeps license status in its cached Plugin Store license info,
+     * exposed through Plugins::getPluginInfo(). Don't use
+     * Plugins::getPluginLicenseKeyStatus(): it reads a `licenseKeyStatus`
+     * column the `plugins` table no longer has, so it always returns Unknown.
      */
     public function getStatus(): LicenseKeyStatus
     {
-        return Craft::$app->plugins->getPluginLicenseKeyStatus(self::PLUGIN_HANDLE);
+        if ($this->status !== null) {
+            return $this->status;
+        }
+
+        try {
+            $info = Craft::$app->getPlugins()->getPluginInfo(self::PLUGIN_HANDLE);
+            $status = LicenseKeyStatus::tryFrom((string) ($info['licenseKeyStatus'] ?? ''))
+                ?? LicenseKeyStatus::Unknown;
+        } catch (\Throwable $e) {
+            Craft::warning('ABTestCraft: Could not read license status: ' . $e->getMessage(), __METHOD__);
+            $status = LicenseKeyStatus::Unknown;
+        }
+
+        if (!Craft::$app->getRequest()->getIsConsoleRequest()) {
+            $this->status = $status;
+        }
+
+        return $status;
     }
 
     /**
@@ -53,14 +82,18 @@ class LicenseService extends Component
 
     /**
      * Check if creating new tests is allowed
-     * Only Valid licenses can create new tests
-     * Unknown is allowed during development (not yet connected to Plugin Store)
+     *
+     * Trial installs are fully functional so people can evaluate the plugin
+     * (e.g. on staging); Craft's own trial alerts plus ours prompt purchase.
+     * Unknown is allowed during development (not yet connected to Plugin Store).
+     * Invalid, Mismatched and Astray licenses are blocked.
      */
     public function canCreateTests(): bool
     {
         $status = $this->getStatus();
         return in_array($status, [
             LicenseKeyStatus::Valid,
+            LicenseKeyStatus::Trial,
             LicenseKeyStatus::Unknown, // Allow during development
         ], true);
     }

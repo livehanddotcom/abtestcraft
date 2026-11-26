@@ -20,18 +20,22 @@ class TestsService extends Component
     /**
      * Get all tests with optional pagination
      *
-     * @param int|null $siteId Filter by site ID
+     * @param int|string|null $siteId Filter by site ID
      * @param int $limit Maximum number of tests to return (0 for unlimited)
      * @param int $offset Number of tests to skip
      * @param bool $includeTrashed Include soft-deleted tests
      * @return Test[]
      */
-    public function getAllTests(?int $siteId = null, int $limit = 0, int $offset = 0, bool $includeTrashed = false): array
-    {
+    public function getAllTests(
+        int|string|null $siteId = null,
+        int $limit = 0,
+        int $offset = 0,
+        bool $includeTrashed = false,
+    ): array {
         $query = TestRecord::find();
 
         if ($siteId) {
-            $query->where(['siteId' => $siteId]);
+            $query->where(['siteId' => (int) $siteId]);
         }
 
         if (!$includeTrashed) {
@@ -50,16 +54,16 @@ class TestsService extends Component
     /**
      * Get total count of tests
      *
-     * @param int|null $siteId Filter by site ID
+     * @param int|string|null $siteId Filter by site ID
      * @param bool $includeTrashed Include soft-deleted tests
      * @return int Total number of tests
      */
-    public function getTotalTestCount(?int $siteId = null, bool $includeTrashed = false): int
+    public function getTotalTestCount(int|string|null $siteId = null, bool $includeTrashed = false): int
     {
         $query = (new Query())->from('{{%abtestcraft_tests}}');
 
         if ($siteId) {
-            $query->where(['siteId' => $siteId]);
+            $query->where(['siteId' => (int) $siteId]);
         }
 
         if (!$includeTrashed) {
@@ -72,14 +76,14 @@ class TestsService extends Component
     /**
      * Get active tests (running)
      */
-    public function getActiveTests(?int $siteId = null): array
+    public function getActiveTests(int|string|null $siteId = null): array
     {
         $query = TestRecord::find()
             ->where(['status' => Test::STATUS_RUNNING])
             ->andWhere(['dateDeleted' => null]);
 
         if ($siteId) {
-            $query->andWhere(['siteId' => $siteId]);
+            $query->andWhere(['siteId' => (int) $siteId]);
         }
 
         return array_map(fn($record) => $this->createModelFromRecord($record), $query->all());
@@ -90,12 +94,12 @@ class TestsService extends Component
      *
      * @param string $filter 'active' (draft/running/paused), 'completed', 'trashed', or 'all'
      */
-    public function getTestsByStatus(string $filter = 'active', ?int $siteId = null): array
+    public function getTestsByStatus(string $filter = 'active', int|string|null $siteId = null): array
     {
         $query = TestRecord::find();
 
         if ($siteId) {
-            $query->where(['siteId' => $siteId]);
+            $query->where(['siteId' => (int) $siteId]);
         }
 
         if ($filter === 'trashed') {
@@ -122,12 +126,12 @@ class TestsService extends Component
      *
      * @return array{active: int, completed: int, trashed: int, all: int}
      */
-    public function getTestCounts(?int $siteId = null): array
+    public function getTestCounts(int|string|null $siteId = null): array
     {
         $baseQuery = (new Query())->from('{{%abtestcraft_tests}}');
 
         if ($siteId) {
-            $baseQuery->where(['siteId' => $siteId]);
+            $baseQuery->where(['siteId' => (int) $siteId]);
         }
 
         // Non-trashed query base
@@ -155,10 +159,13 @@ class TestsService extends Component
 
     /**
      * Get a test by ID
+     *
+     * Accepts strings because IDs often arrive from request params or
+     * DB columns as strings, and this file uses strict_types.
      */
-    public function getTestById(int $id): ?Test
+    public function getTestById(int|string $id): ?Test
     {
-        $record = TestRecord::findOne($id);
+        $record = TestRecord::findOne((int) $id);
 
         if (!$record) {
             return null;
@@ -184,14 +191,15 @@ class TestsService extends Component
     /**
      * Get test by control entry ID
      */
-    public function getTestByControlEntryId(int $entryId, ?int $siteId = null): ?Test
+    public function getTestByControlEntryId(int|string $entryId, int|string|null $siteId = null): ?Test
     {
         $query = TestRecord::find()
-            ->where(['controlEntryId' => $entryId])
-            ->andWhere(['status' => Test::STATUS_RUNNING]);
+            ->where(['controlEntryId' => (int) $entryId])
+            ->andWhere(['status' => Test::STATUS_RUNNING])
+            ->andWhere(['dateDeleted' => null]);
 
         if ($siteId) {
-            $query->andWhere(['siteId' => $siteId]);
+            $query->andWhere(['siteId' => (int) $siteId]);
         }
 
         $record = $query->one();
@@ -214,6 +222,10 @@ class TestsService extends Component
             return false;
         }
 
+        if (!$this->validateUniqueHandle($test)) {
+            return false;
+        }
+
         if ($test->id) {
             $record = TestRecord::findOne($test->id);
             if (!$record) {
@@ -222,6 +234,17 @@ class TestsService extends Component
         } else {
             $record = new TestRecord();
         }
+
+        // Compare with what's stored, to clear the page cache only when this
+        // save starts the test or changes which pages it covers (not on e.g.
+        // saving learnings)
+        $wasRunning = !$record->getIsNewRecord()
+            && $record->status === Test::STATUS_RUNNING
+            && $record->dateDeleted === null;
+        $pagesChanged = $record->getIsNewRecord()
+            || (int) $record->controlEntryId !== (int) $test->controlEntryId
+            || (int) $record->variantEntryId !== (int) $test->variantEntryId
+            || (int) $record->siteId !== (int) ($test->siteId ?? $record->siteId);
 
         $record->siteId = $test->siteId ?? Craft::$app->getSites()->getCurrentSite()->id;
         $record->name = $test->name;
@@ -244,17 +267,62 @@ class TestsService extends Component
             return false;
         }
 
-        $test->id = $record->id;
+        $test->id = (int) $record->id;
         $test->dateCreated = new DateTime($record->dateCreated);
         $test->dateUpdated = new DateTime($record->dateUpdated);
         $test->uid = $record->uid;
 
-        // Rebuild cascade descendant mappings for this test
+        // A running test's pages must not be served from a full-page cache
+        // (e.g. Blitz), or visitors keep getting one cached variant. Covers
+        // starting a test and pointing a running one at different entries.
+        $clearPageCache = $test->isRunning() && (!$wasRunning || $pagesChanged);
+
+        // Rebuild cascade descendant mappings for this test. If that's queued
+        // (large structures), the job clears the page cache again once child
+        // pages are mapped, as some may be cached in the meantime.
         if ($test->controlEntryId && $test->variantEntryId) {
-            ABTestCraft::getInstance()->cascade->rebuildDescendants($test);
+            ABTestCraft::getInstance()->cascade->rebuildDescendants($test, $clearPageCache);
+        }
+
+        if ($clearPageCache) {
+            ABTestCraft::getInstance()->pageCache->clearTestPages($test);
         }
 
         return true;
+    }
+
+    /**
+     * Ensure no other test, including one in the trash, uses the test's handle.
+     *
+     * Handles have a DB unique index that also covers trashed tests, so a
+     * duplicate would otherwise surface as an IntegrityException (HTTP 500)
+     * instead of a form error.
+     */
+    private function validateUniqueHandle(Test $test): bool
+    {
+        $query = (new Query())
+            ->select(['dateDeleted'])
+            ->from('{{%abtestcraft_tests}}')
+            ->where(['handle' => $test->handle]);
+
+        if ($test->id) {
+            $query->andWhere(['not', ['id' => $test->id]]);
+        }
+
+        $existing = $query->one();
+
+        if (!$existing) {
+            return true;
+        }
+
+        $message = $existing['dateDeleted'] !== null
+            ? 'This handle is used by a test in the trash. ' .
+                'Choose a different handle, or restore or permanently delete that test.'
+            : 'This handle is already used by another test.';
+
+        $test->addError('handle', Craft::t('abtestcraft', $message));
+
+        return false;
     }
 
     /**
@@ -311,6 +379,12 @@ class TestsService extends Component
         }
 
         $test->dateDeleted = null;
+
+        // A restored running test goes live again; its pages may have been
+        // cached by Blitz while it was in the trash
+        if ($test->isRunning()) {
+            ABTestCraft::getInstance()->pageCache->clearTestPages($test);
+        }
 
         Craft::info("Split test '{$test->handle}' (ID: {$test->id}) restored from trash", 'abtestcraft');
 
@@ -427,22 +501,29 @@ class TestsService extends Component
     private function createModelFromRecord(TestRecord $record): Test
     {
         $test = new Test();
-        $test->id = $record->id;
-        $test->siteId = $record->siteId;
+        // Cast integer columns: some DB drivers return them as strings, and
+        // assigning a string to an ?int property throws under strict_types
+        $test->id = (int) $record->id;
+        $test->siteId = $record->siteId !== null ? (int) $record->siteId : null;
         $test->name = $record->name;
         $test->handle = $record->handle;
         $test->hypothesis = $record->hypothesis;
         $test->variantDescription = $record->variantDescription;
         $test->learnings = $record->learnings;
         $test->status = $record->status;
-        $test->controlEntryId = $record->controlEntryId;
-        $test->variantEntryId = $record->variantEntryId;
-        $test->trafficSplit = $record->trafficSplit;
+        $test->controlEntryId = $record->controlEntryId !== null ? (int) $record->controlEntryId : null;
+        $test->variantEntryId = $record->variantEntryId !== null ? (int) $record->variantEntryId : null;
+        $test->trafficSplit = (int) $record->trafficSplit;
         $test->goalType = $record->goalType;
         $test->goalValue = $record->goalValue;
         $test->startedAt = $record->startedAt ? new DateTime($record->startedAt) : null;
         $test->endedAt = $record->endedAt ? new DateTime($record->endedAt) : null;
         $test->winnerVariant = $record->winnerVariant;
+        // Needed by NotificationService's cooldown; without it every conversion
+        // on a significant test sent another significance email
+        $test->significanceNotifiedAt = $record->significanceNotifiedAt
+            ? new DateTime($record->significanceNotifiedAt)
+            : null;
         $test->dateCreated = new DateTime($record->dateCreated);
         $test->dateUpdated = new DateTime($record->dateUpdated);
         $test->dateDeleted = $record->dateDeleted ? new DateTime($record->dateDeleted) : null;

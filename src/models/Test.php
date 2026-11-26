@@ -44,6 +44,14 @@ class Test extends Model
     public const STATUS_PAUSED = 'paused';
     public const STATUS_COMPLETED = 'completed';
 
+    /**
+     * Valid test handle: starts with a lowercase letter; letters and digits,
+     * optionally hyphen-separated. Accepts kebab-case (`homepage-hero`) and
+     * camelCase (`homepageHero`, what the CP's Craft.HandleGenerator produces).
+     * Shared with the tracking endpoint so the two can't drift apart.
+     */
+    public const HANDLE_PATTERN = '/^[a-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*$/';
+
     // Variant constants
     public const VARIANT_CONTROL = 'control';
     public const VARIANT_VARIANT = 'variant';
@@ -65,7 +73,13 @@ class Test extends Model
             [['goalType'], 'in', 'range' => [self::GOAL_PHONE, self::GOAL_FORM, self::GOAL_PAGE, self::GOAL_EMAIL, self::GOAL_DOWNLOAD]],
             [['goalValue'], 'string', 'max' => 500],
             [['winnerVariant'], 'in', 'range' => [self::VARIANT_CONTROL, self::VARIANT_VARIANT, null]],
-            [['handle'], 'match', 'pattern' => '/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/', 'message' => 'Handle must be lowercase, start with a letter, and contain only letters, numbers, and hyphens'],
+            [
+                ['handle'],
+                'match',
+                'pattern' => self::HANDLE_PATTERN,
+                'message' => 'Handle must start with a lowercase letter and contain only letters, numbers, ' .
+                    'and hyphens (e.g. homepageHero or homepage-hero).',
+            ],
             // Prevent same entry for control and variant
             [['variantEntryId'], 'compare', 'compareAttribute' => 'controlEntryId', 'operator' => '!=', 'message' => 'Control and variant entries must be different'],
             // Prevent circular reference - variant cannot be a descendant of control
@@ -88,6 +102,7 @@ class Test extends Model
             ->descendantOf($this->controlEntryId)
             ->id($this->variantEntryId)
             ->siteId($this->siteId)
+            ->status(null) // variants are often disabled
             ->exists();
 
         if ($isDescendant) {
@@ -129,7 +144,8 @@ class Test extends Model
         if (!$this->controlEntryId) {
             return null;
         }
-        return Entry::find()->id($this->controlEntryId)->siteId($this->siteId)->one();
+        // Any status: tested entries are often disabled or scheduled
+        return Entry::find()->id($this->controlEntryId)->siteId($this->siteId)->status(null)->one();
     }
 
     /**
@@ -140,7 +156,9 @@ class Test extends Model
         if (!$this->variantEntryId) {
             return null;
         }
-        return Entry::find()->id($this->variantEntryId)->siteId($this->siteId)->one();
+        // Any status: a variant is usually kept disabled so it isn't public at
+        // its own URL; it's only ever shown through the test
+        return Entry::find()->id($this->variantEntryId)->siteId($this->siteId)->status(null)->one();
     }
 
     /**
@@ -148,7 +166,9 @@ class Test extends Model
      */
     public function isRunning(): bool
     {
-        return $this->status === self::STATUS_RUNNING;
+        // A trashed test is inert even if its status is still "running":
+        // no variant swapping, tracking, SEO tags or page-cache exclusion
+        return $this->status === self::STATUS_RUNNING && $this->dateDeleted === null;
     }
 
     /**

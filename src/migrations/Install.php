@@ -130,6 +130,19 @@ class Install extends Migration
             'dateUpdated' => $this->dateTime()->notNull(),
             'uid' => $this->uid(),
         ]);
+
+        // One row per counted conversion slot (from m261125_000002_add_visitor_goals_table):
+        // goalType per goal type, or '*' in first-conversion-only mode. The unique index makes
+        // de-duplication atomic.
+        $this->createTable('{{%abtestcraft_visitor_goals}}', [
+            'id' => $this->primaryKey(),
+            'testId' => $this->integer()->notNull(),
+            'visitorId' => $this->string(36)->notNull(),
+            'goalType' => $this->string(50)->notNull(),
+            'dateCreated' => $this->dateTime()->notNull(),
+            'dateUpdated' => $this->dateTime()->notNull(),
+            'uid' => $this->uid(),
+        ]);
     }
 
     protected function createIndexes(): void
@@ -161,6 +174,9 @@ class Install extends Migration
         // Rate limits indexes (from m250110_000002)
         $this->createIndex('idx_abtestcraft_rate_limits_cache_key', '{{%abtestcraft_rate_limits}}', ['cacheKey'], true);
         $this->createIndex('idx_abtestcraft_rate_limits_window', '{{%abtestcraft_rate_limits}}', ['windowStart']);
+
+        // Visitor goals
+        $this->createIndex(null, '{{%abtestcraft_visitor_goals}}', ['testId', 'visitorId', 'goalType'], true);
 
         // Test descendants indexes (from m250110_000001_add_cascade_descendants_table)
         $this->createIndex(null, '{{%abtestcraft_test_descendants}}', ['testId']);
@@ -286,11 +302,25 @@ class Install extends Migration
             'CASCADE',
             'CASCADE'
         );
+
+        // Visitor goals foreign keys
+        $this->addForeignKey(
+            null,
+            '{{%abtestcraft_visitor_goals}}',
+            ['testId'],
+            '{{%abtestcraft_tests}}',
+            ['id'],
+            'CASCADE',
+            'CASCADE'
+        );
     }
 
     protected function dropForeignKeys(): void
     {
         // Drop in reverse order of creation
+        if ($this->db->tableExists('{{%abtestcraft_visitor_goals}}')) {
+            $this->dropAllForeignKeysToTable('{{%abtestcraft_visitor_goals}}');
+        }
         if ($this->db->tableExists('{{%abtestcraft_test_descendants}}')) {
             $this->dropAllForeignKeysToTable('{{%abtestcraft_test_descendants}}');
         }
@@ -310,6 +340,7 @@ class Install extends Migration
 
     protected function dropTables(): void
     {
+        $this->dropTableIfExists('{{%abtestcraft_visitor_goals}}');
         $this->dropTableIfExists('{{%abtestcraft_test_descendants}}');
         $this->dropTableIfExists('{{%abtestcraft_rate_limits}}');
         $this->dropTableIfExists('{{%abtestcraft_daily_stats}}');

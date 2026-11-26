@@ -412,4 +412,70 @@ class TrackingServiceIntegrationTest extends Unit
 
         $this->assertEquals(125, $impressions['control'], 'Control should aggregate to 125');
     }
+
+    // ========================================
+    // Conversion counting modes (visitor goal slots)
+    // ========================================
+
+    /**
+     * Record a sequence of conversions for one visitor under a counting mode;
+     * returns the total conversions counted for the test.
+     *
+     * @param string[] $types
+     */
+    private function convertSequence(string $mode, array $types): int
+    {
+        $record = $this->createTestRecord(['status' => Test::STATUS_RUNNING]);
+        $test = $this->createTestModel($record);
+        $visitorId = StringHelper::UUID();
+        $this->createVisitorRecord($test->id, Test::VARIANT_VARIANT, $visitorId);
+        $_COOKIE['_abtestcraft_vid'] = $visitorId;
+
+        $settings = ABTestCraft::getInstance()->getSettings();
+        $originalMode = $settings->conversionCountingMode;
+        $settings->conversionCountingMode = $mode;
+
+        try {
+            foreach ($types as $type) {
+                $this->assertTrue($this->service->recordConversion($test, $type));
+            }
+        } finally {
+            $settings->conversionCountingMode = $originalMode;
+            unset($_COOKIE['_abtestcraft_vid']);
+        }
+
+        return $this->service->getTotalConversions($test)['variant'];
+    }
+
+    /**
+     * Default mode: alternating goal types used to be counted again and again
+     * (phone, email, phone, email, phone counted 5); each type counts once.
+     */
+    public function testPerGoalTypeCountsEachTypeOnce(): void
+    {
+        $this->assertSame(2, $this->convertSequence(Settings::COUNTING_PER_GOAL_TYPE, ['phone', 'email', 'phone', 'email', 'phone']));
+    }
+
+    public function testFirstOnlyCountsOneConversion(): void
+    {
+        $this->assertSame(1, $this->convertSequence(Settings::COUNTING_FIRST_ONLY, ['phone', 'email', 'form']));
+    }
+
+    public function testUnlimitedCountsEveryConversion(): void
+    {
+        $this->assertSame(4, $this->convertSequence(Settings::COUNTING_UNLIMITED, ['phone', 'phone', 'email', 'phone']));
+    }
+
+    /**
+     * Slots are removed with the test (FK cascade), so nothing is left behind
+     */
+    public function testVisitorGoalSlotsAreDeletedWithTest(): void
+    {
+        $this->convertSequence(Settings::COUNTING_PER_GOAL_TYPE, ['phone']);
+        $testId = $this->testRecordId;
+        $this->assertSame(1, (int) (new Query())->from('{{%abtestcraft_visitor_goals}}')->where(['testId' => $testId])->count());
+
+        TestRecord::deleteAll(['id' => $testId]);
+        $this->assertSame(0, (int) (new Query())->from('{{%abtestcraft_visitor_goals}}')->where(['testId' => $testId])->count());
+    }
 }

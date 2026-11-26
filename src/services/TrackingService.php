@@ -7,9 +7,12 @@ namespace livehand\abtestcraft\services;
 use Craft;
 use craft\base\Component;
 use craft\db\Query;
+use craft\helpers\Db;
+use craft\helpers\StringHelper;
+use yii\db\Expression;
+use yii\db\IntegrityException;
 use livehand\abtestcraft\models\Settings;
 use livehand\abtestcraft\models\Test;
-use livehand\abtestcraft\records\DailyStatsRecord;
 use livehand\abtestcraft\records\VisitorRecord;
 use livehand\abtestcraft\ABTestCraft;
 use DateTime;
@@ -24,30 +27,11 @@ class TrackingService extends Component
      */
     public function recordImpression(Test $test, string $variant): bool
     {
-        $today = (new DateTime())->format('Y-m-d');
-
-        // Find or create daily stats record
-        $record = DailyStatsRecord::findOne([
-            'testId' => $test->id,
-            'date' => $today,
-            'variant' => $variant,
-        ]);
-
-        if (!$record) {
-            $record = new DailyStatsRecord();
-            $record->testId = $test->id;
-            $record->date = $today;
-            $record->variant = $variant;
-            $record->impressions = 0;
-            $record->conversions = 0;
-        }
-
-        $record->impressions++;
-
-        if (!$record->save()) {
+        try {
+            $this->incrementDailyStat((int) $test->id, $variant, null, 'impressions');
+        } catch (\Throwable $e) {
             Craft::error(
-                "Failed to save impression record for test '{$test->handle}': " .
-                json_encode($record->getErrors()),
+                "Failed to save impression record for test '{$test->handle}': " . $e->getMessage(),
                 __METHOD__
             );
             return false;
@@ -57,8 +41,7 @@ class TrackingService extends Component
     }
 
     /**
-     * Record a conversion for a test
-     * Uses database transaction to ensure atomic updates
+     * Record a conversion for a test, de-duplicated per the counting mode
      */
     public function recordConversion(Test $test, string $conversionType, ?int $goalId = null): bool
     {
@@ -70,113 +53,34 @@ class TrackingService extends Component
             return false;
         }
 
-        // Check for duplicate conversions based on counting mode setting
+        // De-duplicate by counting mode with an atomic claim on a unique
+        // (test, visitor, slot) row: the goal type ("one per goal type",
+        // the default) or '*' ("first conversion only"). Unlimited mode
+        // counts everything. This also stops simultaneous requests from
+        // counting the same conversion twice.
         $mode = ABTestCraft::getInstance()->getSettings()->conversionCountingMode ?? Settings::COUNTING_PER_GOAL_TYPE;
+        $slot = match ($mode) {
+            Settings::COUNTING_FIRST_ONLY => '*',
+            Settings::COUNTING_UNLIMITED => null,
+            default => $conversionType,
+        };
 
-        $existingConversion = false;
-
-        if ($mode === Settings::COUNTING_FIRST_ONLY) {
-            // First conversion only: check if visitor has ANY conversion
-            $existingConversion = (new Query())
-                ->from('{{%abtestcraft_visitors}}')
-                ->where([
-                    'testId' => $test->id,
-                    'visitorId' => $visitorRecord->visitorId,
-                ])
-                ->andWhere(['not', ['dateConverted' => null]])
-                ->exists();
-        } elseif ($mode === Settings::COUNTING_PER_GOAL_TYPE) {
-            // Per goal type (default): check if visitor has conversion for THIS goal type
-            $existingConversion = (new Query())
-                ->from('{{%abtestcraft_visitors}}')
-                ->where([
-                    'testId' => $test->id,
-                    'visitorId' => $visitorRecord->visitorId,
-                    'conversionType' => $conversionType,
-                ])
-                ->andWhere(['not', ['dateConverted' => null]])
-                ->exists();
-        }
-        // Unlimited mode: existingConversion stays false, always allow
-
-        if ($existingConversion) {
-            return true; // Already converted based on counting mode rules
+        if ($slot !== null && !$this->claimConversionSlot((int) $test->id, $visitorRecord->visitorId, $slot)) {
+            return true; // Already counted under the counting mode rules
         }
 
-        // Use transaction to ensure atomic updates
-        $transaction = Craft::$app->getDb()->beginTransaction();
+        // Count it. Daily totals (goalType null, for backward compatibility)
+        // and per-goal-type stats use atomic increments, deliberately not in a
+        // transaction: a row inserted in an open transaction isn't visible to
+        // concurrent requests, which would then insert duplicates.
         try {
-            // Update visitor record with this conversion
-            $visitorRecord->converted = true;
-            $visitorRecord->conversionType = $conversionType;
-            $visitorRecord->goalId = $goalId;
-            $visitorRecord->dateConverted = (new DateTime())->format('Y-m-d H:i:s');
-
-            if (!$visitorRecord->save()) {
-                throw new \Exception(
-                    "Failed to save visitor conversion record: " .
-                    json_encode($visitorRecord->getErrors())
-                );
-            }
-
-            // Update daily stats (with goal type tracking)
-            $today = (new DateTime())->format('Y-m-d');
-
-            // Update general stats (without goal type for backward compatibility)
-            $statsRecord = DailyStatsRecord::findOne([
-                'testId' => $test->id,
-                'date' => $today,
-                'variant' => $visitorRecord->variant,
-                'goalType' => null,
-            ]);
-
-            if (!$statsRecord) {
-                $statsRecord = new DailyStatsRecord();
-                $statsRecord->testId = $test->id;
-                $statsRecord->date = $today;
-                $statsRecord->variant = $visitorRecord->variant;
-                $statsRecord->impressions = 0;
-                $statsRecord->conversions = 0;
-                $statsRecord->goalType = null;
-            }
-
-            $statsRecord->conversions++;
-            if (!$statsRecord->save()) {
-                throw new \Exception(
-                    "Failed to save stats record: " .
-                    json_encode($statsRecord->getErrors())
-                );
-            }
-
-            // Also update goal-specific stats
-            $goalStatsRecord = DailyStatsRecord::findOne([
-                'testId' => $test->id,
-                'date' => $today,
-                'variant' => $visitorRecord->variant,
-                'goalType' => $conversionType,
-            ]);
-
-            if (!$goalStatsRecord) {
-                $goalStatsRecord = new DailyStatsRecord();
-                $goalStatsRecord->testId = $test->id;
-                $goalStatsRecord->date = $today;
-                $goalStatsRecord->variant = $visitorRecord->variant;
-                $goalStatsRecord->impressions = 0;
-                $goalStatsRecord->conversions = 0;
-                $goalStatsRecord->goalType = $conversionType;
-            }
-
-            $goalStatsRecord->conversions++;
-            if (!$goalStatsRecord->save()) {
-                throw new \Exception(
-                    "Failed to save goal stats record: " .
-                    json_encode($goalStatsRecord->getErrors())
-                );
-            }
-
-            $transaction->commit();
+            $this->incrementDailyStat((int) $test->id, $visitorRecord->variant, null, 'conversions');
+            $this->incrementDailyStat((int) $test->id, $visitorRecord->variant, $conversionType, 'conversions');
         } catch (\Throwable $e) {
-            $transaction->rollBack();
+            // Not counted, so free the slot and let a later attempt count it
+            if ($slot !== null) {
+                $this->releaseConversionSlot((int) $test->id, $visitorRecord->visitorId, $slot);
+            }
             Craft::error(
                 "Failed to record conversion for test '{$test->handle}': " . $e->getMessage(),
                 __METHOD__
@@ -184,10 +88,136 @@ class TrackingService extends Component
             return false;
         }
 
+        // Visitor-level record (converted flag, latest conversion) last; the
+        // conversion is already counted if this fails, so just log it
+        $visitorRecord->converted = true;
+        $visitorRecord->conversionType = $conversionType;
+        $visitorRecord->goalId = $goalId;
+        $visitorRecord->dateConverted = (new DateTime())->format('Y-m-d H:i:s');
+
+        if (!$visitorRecord->save()) {
+            Craft::warning(
+                "Conversion counted for test '{$test->handle}' but visitor record not updated: " .
+                json_encode($visitorRecord->getErrors()),
+                __METHOD__
+            );
+        }
+
         // Check if test has reached significance (outside transaction)
         $this->checkSignificance($test);
 
         return true;
+    }
+
+    /**
+     * Claim a conversion slot for a visitor. Returns false if it was already
+     * claimed (the conversion was counted before). The unique index on
+     * (testId, visitorId, goalType) makes this safe under concurrency.
+     */
+    private function claimConversionSlot(int $testId, string $visitorId, string $slot): bool
+    {
+        $table = '{{%abtestcraft_visitor_goals}}';
+        $key = ['testId' => $testId, 'visitorId' => $visitorId, 'goalType' => $slot];
+
+        // Cheap check first, so the common duplicate case doesn't log a DB error
+        if ((new Query())->from($table)->where($key)->exists()) {
+            return false;
+        }
+
+        $now = Db::prepareDateForDb(new DateTime());
+        try {
+            Craft::$app->getDb()->createCommand()->insert($table, $key + [
+                'dateCreated' => $now,
+                'dateUpdated' => $now,
+                'uid' => StringHelper::UUID(),
+            ])->execute();
+        } catch (IntegrityException) {
+            return false; // Another request claimed it at the same moment
+        }
+
+        return true;
+    }
+
+    private function releaseConversionSlot(int $testId, string $visitorId, string $slot): void
+    {
+        try {
+            Craft::$app->getDb()->createCommand()->delete('{{%abtestcraft_visitor_goals}}', [
+                'testId' => $testId,
+                'visitorId' => $visitorId,
+                'goalType' => $slot,
+            ])->execute();
+        } catch (\Throwable $e) {
+            Craft::error("Failed to release conversion slot: " . $e->getMessage(), __METHOD__);
+        }
+    }
+
+    /**
+     * Atomically add 1 to today's impressions or conversions for a variant.
+     *
+     * A read-modify-write through the ActiveRecord lost counts under
+     * concurrent traffic (about 26-48% of impressions at 20 concurrent
+     * requests). The increment is a single UPDATE; a missing row is created
+     * under a mutex and re-checked, so simultaneous first hits of the day
+     * don't create duplicate rows (the unique index can't prevent those when
+     * goalType is NULL).
+     *
+     * @param string $column 'impressions' or 'conversions'
+     */
+    private function incrementDailyStat(int $testId, string $variant, ?string $goalType, string $column): void
+    {
+        if (!in_array($column, ['impressions', 'conversions'], true)) {
+            throw new \InvalidArgumentException("Invalid stats column: {$column}");
+        }
+
+        $today = (new DateTime())->format('Y-m-d');
+        $condition = ['testId' => $testId, 'date' => $today, 'variant' => $variant, 'goalType' => $goalType];
+
+        if ($this->incrementExistingDailyStat($condition, $column)) {
+            return;
+        }
+
+        $mutex = Craft::$app->getMutex();
+        $lockName = 'abtestcraft-daily-stats-' . md5(json_encode($condition));
+
+        if (!$mutex->acquire($lockName, 5)) {
+            throw new \RuntimeException("Could not acquire stats lock for test {$testId}");
+        }
+
+        try {
+            // Another request may have created the row while we waited
+            if ($this->incrementExistingDailyStat($condition, $column)) {
+                return;
+            }
+
+            // Audit columns set explicitly so this doesn't depend on the
+            // connection using Craft's command class
+            $now = Db::prepareDateForDb(new DateTime());
+            Craft::$app->getDb()->createCommand()->insert('{{%abtestcraft_daily_stats}}', $condition + [
+                'impressions' => $column === 'impressions' ? 1 : 0,
+                'conversions' => $column === 'conversions' ? 1 : 0,
+                'dateCreated' => $now,
+                'dateUpdated' => $now,
+                'uid' => StringHelper::UUID(),
+            ])->execute();
+        } finally {
+            $mutex->release($lockName);
+        }
+    }
+
+    /**
+     * Single-statement increment of an existing daily stats row.
+     *
+     * @phpstan-impure
+     * @return bool Whether a row existed (and was incremented)
+     */
+    private function incrementExistingDailyStat(array $condition, string $column): bool
+    {
+        return Craft::$app->getDb()->createCommand()
+            ->update('{{%abtestcraft_daily_stats}}', [
+                $column => new Expression("[[{$column}]] + 1"),
+                'dateUpdated' => Db::prepareDateForDb(new DateTime()),
+            ], $condition)
+            ->execute() > 0;
     }
 
     /**

@@ -7,6 +7,7 @@ namespace livehand\abtestcraft\services;
 use Craft;
 use craft\base\Component;
 use craft\elements\Entry;
+use craft\elements\db\EagerLoadPlan;
 use craft\events\TemplateEvent;
 use livehand\abtestcraft\models\Test;
 use livehand\abtestcraft\ABTestCraft;
@@ -71,6 +72,18 @@ class RoutingService extends Component
             return;
         }
 
+        $pageCache = ABTestCraft::getInstance()->pageCache;
+
+        // The response depends on the visitor's variant cookie, so it must
+        // never be stored in a shared/full-page cache (Blitz, CDN, proxy)
+        $pageCache->excludeCurrentRequest();
+
+        // Blitz's cache generator isn't a real visitor: render the control
+        // without assigning a variant, setting cookies, or counting an impression
+        if ($pageCache->isCacheGeneratorRequest()) {
+            return;
+        }
+
         // Get or assign variant
         $variant = ABTestCraft::getInstance()->assignment->getOrAssignVariant($test);
 
@@ -118,7 +131,7 @@ class RoutingService extends Component
             $parentProperty = $reflection->getProperty('_parent');
             $parentProperty->setAccessible(true);
             $parentProperty->setValue($entry, $newParent);
-        } catch (\ReflectionException $e) {
+        } catch (\Throwable $e) {
             Craft::warning(
                 "Split Test: Could not override entry parent via Reflection: " . $e->getMessage(),
                 __METHOD__
@@ -142,9 +155,16 @@ class RoutingService extends Component
             }
 
             // Use setEagerLoadedElements to override what getChildren() returns
-            // This is the cleanest way as Craft checks eager-loaded elements first
-            $variantEntry->setEagerLoadedElements('children', $controlChildren);
-        } catch (\Exception $e) {
+            // This is the cleanest way as Craft checks eager-loaded elements first.
+            // The plan argument is required on every Craft 5 version; calling it
+            // without one threw ArgumentCountError (a 500 for variant visitors
+            // whenever the control entry had children).
+            $variantEntry->setEagerLoadedElements(
+                'children',
+                $controlChildren,
+                new EagerLoadPlan(['handle' => 'children', 'alias' => 'children'])
+            );
+        } catch (\Throwable $e) {
             Craft::warning(
                 "Split Test: Could not override entry children: " . $e->getMessage(),
                 __METHOD__

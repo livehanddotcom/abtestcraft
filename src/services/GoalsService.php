@@ -103,7 +103,7 @@ class GoalsService extends Component
             return false;
         }
 
-        $goal->id = $record->id;
+        $goal->id = (int) $record->id;
         $goal->dateCreated = new DateTime($record->dateCreated);
         $goal->dateUpdated = new DateTime($record->dateUpdated);
         $goal->uid = $record->uid;
@@ -246,12 +246,13 @@ class GoalsService extends Component
     private function createModelFromRecord(GoalRecord $record): Goal
     {
         $goal = new Goal();
-        $goal->id = $record->id;
-        $goal->testId = $record->testId;
+        // Cast integer columns (may be strings depending on DB driver)
+        $goal->id = (int) $record->id;
+        $goal->testId = (int) $record->testId;
         $goal->goalType = $record->goalType;
         $goal->isEnabled = (bool) $record->isEnabled;
         $goal->config = is_string($record->config) ? Json::decode($record->config) : $record->config;
-        $goal->sortOrder = $record->sortOrder;
+        $goal->sortOrder = $record->sortOrder !== null ? (int) $record->sortOrder : null;
         $goal->dateCreated = new DateTime($record->dateCreated);
         $goal->dateUpdated = new DateTime($record->dateUpdated);
         $goal->uid = $record->uid;
