@@ -21,19 +21,24 @@ class AssignmentService extends Component
     private const VISITOR_ID_COOKIE = '_abtestcraft_vid';
 
     /**
+     * "In a test" marker for the page-visit beacon (see PageVisitService).
+     * Readable by JavaScript and holds no data, so the beacon only sends a
+     * request for visitors who've been assigned to a test.
+     */
+    public const MARKER_COOKIE = '_abtestcraft_on';
+
+    /**
      * Get or assign a variant for a visitor
      */
     public function getOrAssignVariant(Test $test): string
     {
         // Check if visitor already has an assignment for this test
-        $existingVariant = $this->getVisitorVariant($test);
+        $variant = $this->getVisitorVariant($test) ?? $this->assignVariant($test);
 
-        if ($existingVariant !== null) {
-            return $existingVariant;
-        }
+        // Also covers visitors assigned before the marker existed
+        $this->ensureMarkerCookie();
 
-        // Assign a new variant
-        return $this->assignVariant($test);
+        return $variant;
     }
 
     /**
@@ -116,11 +121,20 @@ class AssignmentService extends Component
     }
 
     /**
+     * The current visitor's ID from their cookie, without creating one.
+     * Null for visitors who were never assigned to a test.
+     */
+    public function getVisitorId(): ?string
+    {
+        return $this->getCookieValue(self::VISITOR_ID_COOKIE);
+    }
+
+    /**
      * Get visitor record for a test
      */
     public function getVisitorRecord(Test $test): ?VisitorRecord
     {
-        $visitorId = $this->getCookieValue(self::VISITOR_ID_COOKIE);
+        $visitorId = $this->getVisitorId();
 
         if (!$visitorId) {
             return null;
@@ -194,6 +208,28 @@ class AssignmentService extends Component
     }
 
     /**
+     * Set the "in a test" marker cookie if the visitor doesn't have it.
+     * Not HttpOnly on purpose: the cache-safe page-visit beacon reads it to
+     * decide whether to send anything. Its value is only "1".
+     */
+    private function ensureMarkerCookie(): void
+    {
+        if ($this->getCookieValue(self::MARKER_COOKIE) === '1') {
+            return;
+        }
+
+        setcookie(self::MARKER_COOKIE, '1', [
+            'expires' => time() + ($this->getCookieDuration() * 24 * 60 * 60),
+            'path' => '/',
+            'secure' => Craft::$app->getRequest()->getIsSecureConnection(),
+            'httponly' => false,
+            'samesite' => 'Lax',
+        ]);
+
+        $_COOKIE[self::MARKER_COOKIE] = '1';
+    }
+
+    /**
      * Get cookie duration from settings
      */
     private function getCookieDuration(): int
@@ -237,6 +273,10 @@ class AssignmentService extends Component
                 return null;
             }
             return $value;
+        }
+
+        if ($name === self::MARKER_COOKIE) {
+            return $value === '1' ? $value : null;
         }
 
         // Validate variant cookies (must be 'control' or 'variant')

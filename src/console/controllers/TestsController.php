@@ -175,8 +175,10 @@ class TestsController extends Controller
         $stats = ABTestCraft::getInstance()->stats->getTestStats($test);
 
         $this->stdout("Stats cache cleared and recalculated for test: {$test->name}\n", Console::FG_GREEN);
-        $this->stdout("  Impressions: {$stats['impressions']['control']} (control) / {$stats['impressions']['variant']} (variant)\n");
-        $this->stdout("  Conversions: {$stats['conversions']['control']} (control) / {$stats['conversions']['variant']} (variant)\n");
+        $impressions = $stats['impressions'];
+        $conversions = $stats['conversions'];
+        $this->stdout("  Impressions: {$impressions['control']} (control) / {$impressions['variant']} (variant)\n");
+        $this->stdout("  Conversions: {$conversions['control']} (control) / {$conversions['variant']} (variant)\n");
 
         return ExitCode::OK;
     }

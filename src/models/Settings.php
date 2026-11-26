@@ -64,10 +64,24 @@ class Settings extends Model
             [['significanceThreshold'], 'number', 'min' => 0.8, 'max' => 0.99],
             [['minimumDetectableEffect'], 'number', 'min' => 0.05, 'max' => 0.30],
             [['conversionRateLimit'], 'integer', 'min' => 1, 'max' => 100],
-            [['trackPhoneClicks', 'trackEmailClicks', 'trackFormSubmissions', 'trackFileDownloads', 'sendSignificanceEmail', 'enableDataLayer'], 'boolean'],
+            [
+                [
+                    'trackPhoneClicks',
+                    'trackEmailClicks',
+                    'trackFormSubmissions',
+                    'trackFileDownloads',
+                    'sendSignificanceEmail',
+                    'enableDataLayer',
+                ],
+                'boolean',
+            ],
             [['notificationEmails'], 'string'],
             [['notificationEmails'], 'validateEmailList'],
-            [['conversionCountingMode'], 'in', 'range' => [self::COUNTING_FIRST_ONLY, self::COUNTING_PER_GOAL_TYPE, self::COUNTING_UNLIMITED]],
+            [
+                ['conversionCountingMode'],
+                'in',
+                'range' => [self::COUNTING_FIRST_ONLY, self::COUNTING_PER_GOAL_TYPE, self::COUNTING_UNLIMITED],
+            ],
         ];
     }
 

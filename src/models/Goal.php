@@ -140,6 +140,28 @@ class Goal extends Model
     }
 
     /**
+     * Whether this (smart mode) form goal covers a form. No forms selected
+     * means any Freeform or Formie form, but only when it's submitted on a
+     * tested page (see FormSubmissionService).
+     */
+    public function coversForm(string $pluginHandle, string $formHandle): bool
+    {
+        $selected = $this->getSelectedForms();
+
+        return $selected === [] || in_array("{$pluginHandle}:{$formHandle}", $selected, true);
+    }
+
+    /**
+     * Whether specific forms are selected. Selected forms count wherever the
+     * visitor submits them after being assigned; with none selected, only
+     * submissions on a tested page count.
+     */
+    public function hasSelectedForms(): bool
+    {
+        return $this->getSelectedForms() !== [];
+    }
+
+    /**
      * Get the form selector from config
      */
     public function getFormSelector(): ?string
@@ -189,6 +211,35 @@ class Goal extends Model
     public function getMatchType(): string
     {
         return $this->config['matchType'] ?? self::MATCH_EXACT;
+    }
+
+    /**
+     * Whether a URL matches this page-visit goal. Same rules as the tracking
+     * script's urlMatchesPath(): case-insensitive, compares paths only
+     * (scheme, host, query string and fragment are ignored).
+     */
+    public function matchesPageUrl(string $url): bool
+    {
+        $goalUrl = $this->getPageUrl();
+        if ($goalUrl === null || trim($goalUrl) === '') {
+            return false;
+        }
+
+        $normalize = static function (string $value): string {
+            $value = strtolower($value);
+            $value = explode('#', explode('?', $value, 2)[0], 2)[0];
+
+            return (string) preg_replace('#^https?://[^/]+#', '', $value);
+        };
+
+        $path = $normalize($url);
+        $goal = $normalize(trim($goalUrl));
+
+        return match ($this->getMatchType()) {
+            self::MATCH_STARTS_WITH => str_starts_with($path, $goal),
+            self::MATCH_CONTAINS => str_contains($path, $goal),
+            default => $path === $goal,
+        };
     }
 
     /**

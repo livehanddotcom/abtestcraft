@@ -20,7 +20,7 @@ class TrackController extends Controller
     /**
      * Allow anonymous access to tracking endpoints
      */
-    protected array|int|bool $allowAnonymous = ['convert'];
+    protected array|int|bool $allowAnonymous = ['convert', 'page'];
 
     /**
      * Skip CSRF validation for the anonymous conversion beacon.
@@ -33,7 +33,7 @@ class TrackController extends Controller
      */
     public function beforeAction($action): bool
     {
-        if ($action->id === 'convert') {
+        if (in_array($action->id, ['convert', 'page'], true)) {
             $this->enableCsrfValidation = false;
         }
 
@@ -96,6 +96,49 @@ class TrackController extends Controller
         );
 
         return $this->asJson(['success' => $success]);
+    }
+
+    /**
+     * Record a page visit from the beacon on every front-end page (see
+     * PageVisitService). Counts page-visit goals for the visitor's running
+     * tests, and returns dataLayer events for them when the dataLayer is on.
+     */
+    public function actionPage(): Response
+    {
+        $this->requirePostRequest();
+
+        $request = Craft::$app->getRequest();
+        $url = $request->getBodyParam('url');
+        if (!is_string($url) || $url === '' || strlen($url) > 2048) {
+            return $this->asJson(['success' => false]);
+        }
+
+        // Never create a visitor ID here: only assigned visitors can convert
+        $visitorId = ABTestCraft::getInstance()->assignment->getVisitorId();
+        if ($visitorId === null) {
+            return $this->asJson(['success' => false]);
+        }
+
+        $ip = $request->getHeaders()->get('CF-Connecting-IP') ?: $request->getUserIP();
+        if (!$this->checkRateLimit((string) $ip, $visitorId, '__page__')) {
+            return $this->asJson(['success' => false, 'error' => 'Rate limited']);
+        }
+
+        $counted = ABTestCraft::getInstance()->pageVisits->recordPageVisit($url);
+
+        $events = [];
+        if (ABTestCraft::getInstance()->getSettings()->enableDataLayer) {
+            foreach ($counted as $conversion) {
+                $events[] = [
+                    'event' => 'abtestcraft_conversion',
+                    'abtestcraft_name' => $conversion['testHandle'],
+                    'abtestcraft_variant' => $conversion['variant'],
+                    'conversion_type' => 'page',
+                ];
+            }
+        }
+
+        return $this->asJson(['success' => true, 'events' => $events]);
     }
 
     /**

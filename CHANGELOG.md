@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - Unreleased
+
+> [!IMPORTANT]
+> Conversions now count wherever on the site a visitor completes them after being assigned to a test, not only on the tested page. This is standard A/B test attribution and counts landing page → contact page → thank-you page journeys that were missed before. If you use Blitz or a CDN, refresh the cache once after updating so cached pages include the new page-visit beacon.
+
+### Added
+- Easy-mode form goals are counted on the server when Freeform or Formie accepts a submission (Freeform 5, Formie 3 and 4). AJAX and page-reload forms both work, forms that redirect to a thank-you page are now counted, and page caching doesn't affect them.
+- Page-visit goals count on any page of the site, including after a redirect, through a small beacon script on every front-end page. The beacon is the same for every visitor, so it's safe on Blitz- and CDN-cached pages, and only sends a request for visitors who've been assigned to a test (marked by a new `_abtestcraft_on` cookie).
+- A selected form now counts wherever a visitor in the test submits it, not only on the tested page.
+- Page-visit conversions are pushed to the dataLayer (when enabled) on whichever page they happen.
+
+### Changed
+- Easy-mode form goals with no forms selected still count any Freeform or Formie form only when it's submitted on the tested page.
+- On the tested page, page-visit goals are only counted from link clicks when the link goes to another site; visits to pages on this site are counted by the beacon.
+- The tracking endpoint ignores `form` conversions for Easy-mode form goals, so a submission is never counted twice (including from pages cached with an older tracking script).
+
+### Fixed
+- Fixed form submissions that redirect to a thank-you page outside the test never being counted.
+- Fixed Formie page-reload submissions that the server rejected as spam still being counted: the form plugin's own spam verdict is now used.
+- Fixed page-visit goals not counting when the goal page was reached by a redirect or by browsing other pages first.
+
 ## [1.0.2] - 2026-11-26
 
 ### Added

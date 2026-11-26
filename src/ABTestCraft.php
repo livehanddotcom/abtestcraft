@@ -26,9 +26,11 @@ use livehand\abtestcraft\services\AssignmentService;
 use livehand\abtestcraft\services\AuditService;
 use livehand\abtestcraft\services\CascadeService;
 use livehand\abtestcraft\services\FormPluginDetectorService;
+use livehand\abtestcraft\services\FormSubmissionService;
 use livehand\abtestcraft\services\GoalsService;
 use livehand\abtestcraft\services\NotificationService;
 use livehand\abtestcraft\services\PageCacheService;
+use livehand\abtestcraft\services\PageVisitService;
 use livehand\abtestcraft\services\RoutingService;
 use livehand\abtestcraft\services\SeoService;
 use livehand\abtestcraft\services\StatsService;
@@ -56,10 +58,12 @@ use yii\base\Event;
  * @property SeoService $seo
  * @property CascadeService $cascade
  * @property FormPluginDetectorService $formPluginDetector
+ * @property FormSubmissionService $formSubmissions
  * @property NotificationService $notifications
  * @property AuditService $audit
  * @property LicenseService $license
  * @property PageCacheService $pageCache
+ * @property PageVisitService $pageVisits
  */
 class ABTestCraft extends BasePlugin
 {
@@ -80,10 +84,12 @@ class ABTestCraft extends BasePlugin
                 'seo' => SeoService::class,
                 'cascade' => CascadeService::class,
                 'formPluginDetector' => FormPluginDetectorService::class,
+                'formSubmissions' => FormSubmissionService::class,
                 'notifications' => NotificationService::class,
                 'audit' => AuditService::class,
                 'license' => LicenseService::class,
                 'pageCache' => PageCacheService::class,
+                'pageVisits' => PageVisitService::class,
             ],
         ];
     }
@@ -217,6 +223,9 @@ class ABTestCraft extends BasePlugin
             );
         }
 
+        // Count smart-mode form goals when Freeform/Formie accept a submission
+        $this->formSubmissions->registerEventHandlers();
+
         // Register structure change handlers for cascade synchronization
         $this->registerCascadeEventHandlers();
     }
@@ -261,16 +270,38 @@ class ABTestCraft extends BasePlugin
     }
 
     /**
-     * Inject tracking JavaScript into the page
+     * Inject the page-visit beacon into every front-end page, and the full
+     * tracking script into pages with a running test
      */
     private function injectTrackingScript(TemplateEvent $event): void
     {
-        // Only inject if there's an active test
-        if (!$this->routing->hasActiveTest()) {
+        // Editors previewing entries aren't visitors
+        if (Craft::$app->getRequest()->getIsPreview()) {
             return;
         }
 
+        $script = $this->pageVisits->getBeaconScript() . "\n";
+
+        if ($this->routing->hasActiveTest()) {
+            $script .= $this->getTrackingScript() ?? '';
+        }
+
+        // Inject before </body> - use strrpos to only replace the last occurrence
+        $pos = strrpos($event->output, '</body>');
+        if ($pos !== false) {
+            $event->output = substr_replace($event->output, $script . '</body>', $pos, 7);
+        }
+    }
+
+    /**
+     * The tracking script and its configuration for the page's running test
+     */
+    private function getTrackingScript(): ?string
+    {
         $test = $this->routing->getActiveTest();
+        if ($test === null) {
+            return null;
+        }
         $variant = $this->routing->getActiveVariant();
         $settings = $this->getSettings();
 
@@ -311,18 +342,11 @@ class ABTestCraft extends BasePlugin
             }
         } catch (\Throwable $e) {
             Craft::error('ABTestCraft tracking script error: ' . $e->getMessage(), __METHOD__);
-            return;
+            return null;
         }
 
-        // Build the injection script
-        $script = "<script>window.ABTestCraftConfig = {$configJson};</script>\n";
-        $script .= "<script>{$trackingJs}</script>\n";
-
-        // Inject before </body> - use strrpos to only replace the last occurrence
-        $pos = strrpos($event->output, '</body>');
-        if ($pos !== false) {
-            $event->output = substr_replace($event->output, $script . '</body>', $pos, 7);
-        }
+        return "<script>window.ABTestCraftConfig = {$configJson};</script>\n"
+            . "<script>{$trackingJs}</script>\n";
     }
 
     /**
