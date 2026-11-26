@@ -69,8 +69,16 @@ class Test extends Model
             [['name', 'handle', 'controlEntryId', 'variantEntryId', 'goalType'], 'required'],
             [['name', 'handle'], 'string', 'max' => 255],
             [['trafficSplit'], 'integer', 'min' => 0, 'max' => 100],
-            [['status'], 'in', 'range' => [self::STATUS_DRAFT, self::STATUS_RUNNING, self::STATUS_PAUSED, self::STATUS_COMPLETED]],
-            [['goalType'], 'in', 'range' => [self::GOAL_PHONE, self::GOAL_FORM, self::GOAL_PAGE, self::GOAL_EMAIL, self::GOAL_DOWNLOAD]],
+            [
+                ['status'],
+                'in',
+                'range' => [self::STATUS_DRAFT, self::STATUS_RUNNING, self::STATUS_PAUSED, self::STATUS_COMPLETED],
+            ],
+            [
+                ['goalType'],
+                'in',
+                'range' => [self::GOAL_PHONE, self::GOAL_FORM, self::GOAL_PAGE, self::GOAL_EMAIL, self::GOAL_DOWNLOAD],
+            ],
             [['goalValue'], 'string', 'max' => 500],
             [['winnerVariant'], 'in', 'range' => [self::VARIANT_CONTROL, self::VARIANT_VARIANT, null]],
             [
@@ -81,7 +89,13 @@ class Test extends Model
                     'and hyphens (e.g. homepageHero or homepage-hero).',
             ],
             // Prevent same entry for control and variant
-            [['variantEntryId'], 'compare', 'compareAttribute' => 'controlEntryId', 'operator' => '!=', 'message' => 'Control and variant entries must be different'],
+            [
+                ['variantEntryId'],
+                'compare',
+                'compareAttribute' => 'controlEntryId',
+                'operator' => '!=',
+                'message' => 'Control and variant entries must be different',
+            ],
             // Prevent circular reference - variant cannot be a descendant of control
             [['variantEntryId'], 'validateNotDescendantOfControl'],
         ];
@@ -106,7 +120,11 @@ class Test extends Model
             ->exists();
 
         if ($isDescendant) {
-            $this->addError($attribute, 'The variant entry cannot be a child/descendant of the control entry. This would create a circular reference.');
+            $this->addError(
+                $attribute,
+                'The variant entry cannot be a child/descendant of the control entry. '
+                . 'This would create a circular reference.'
+            );
         }
     }
 

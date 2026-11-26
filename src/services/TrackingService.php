@@ -50,7 +50,10 @@ class TrackingService extends Component
         $visitorRecord = ABTestCraft::getInstance()->assignment->getVisitorRecord($test);
 
         if (!$visitorRecord) {
-            Craft::warning("Split Test: Cannot record conversion - visitor not found for test '{$test->handle}'", __METHOD__);
+            Craft::warning(
+                "Split Test: Cannot record conversion - visitor not found for test '{$test->handle}'",
+                __METHOD__
+            );
             return false;
         }
 

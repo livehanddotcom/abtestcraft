@@ -136,7 +136,10 @@ class LicenseService extends Component
         $status = $this->getStatus();
 
         $message = match ($status) {
-            LicenseKeyStatus::Trial => Craft::t('abtestcraft', 'You are using ABTestCraft in trial mode. Purchase a license to remove this message.'),
+            LicenseKeyStatus::Trial => Craft::t(
+                'abtestcraft',
+                'You are using ABTestCraft in trial mode. Purchase a license to remove this message.'
+            ),
             LicenseKeyStatus::Invalid => Craft::t('abtestcraft', 'Your license key is invalid.'),
             LicenseKeyStatus::Mismatched => Craft::t('abtestcraft', 'This license is tied to another Craft install.'),
             LicenseKeyStatus::Astray => Craft::t('abtestcraft', 'This license does not cover this version.'),

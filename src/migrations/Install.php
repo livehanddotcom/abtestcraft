@@ -98,7 +98,8 @@ class Install extends Migration
             'testId' => $this->integer()->notNull(),
             'date' => $this->date()->notNull(),
             'variant' => $this->string(20)->notNull(), // control, variant
-            'goalType' => $this->string(50)->null(), // From m250107_000001 - phone, form, page, email, download (null for aggregate stats)
+            // From m250107_000001 - phone, form, page, email, download (null for aggregate stats)
+            'goalType' => $this->string(50)->null(),
             'impressions' => $this->integer()->notNull()->defaultValue(0),
             'conversions' => $this->integer()->notNull()->defaultValue(0),
             'dateCreated' => $this->dateTime()->notNull(),
