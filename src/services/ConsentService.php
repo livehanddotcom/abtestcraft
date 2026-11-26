@@ -32,14 +32,27 @@ class ConsentService extends Component
     public const CONSENT_COOKIE = '_abtestcraft_consent';
 
     /**
-     * Consent banner cookies and the text in their value that means
-     * analytics/statistics consent was given
+     * Consent banners whose own first-party cookie the server can read. The
+     * check for each is in bannerGrants(). Formats from the vendors' docs:
+     * - Cookiebot `CookieConsent`: `{...,statistics:true,...}`, or `-1` where
+     *   consent isn't required (treated as granted)
+     * - CookieYes `cookieyes-consent`: `...,analytics:yes,...`
+     * - Complianz `cmplz_statistics` (`cmplz_rt_statistics` on a multisite
+     *   root): `allow` or `deny`
+     * - OneTrust `OptanonConsent`: `...&groups=C0001:1,C0002:1&...`; the
+     *   performance group is C0002 by default but configurable per account
+     * - CookieConsent (orestbida, v3) `cc_cookie`: JSON with a `categories`
+     *   list; "analytics" by convention
+     * Banners that keep consent in localStorage (Usercentrics, CookieConsent
+     * with useLocalStorage) can't be read by the server: use Google Consent
+     * Mode or ABTestCraft.setConsent() for those.
      */
     public const BANNER_PRESETS = [
-        'cookiebot' => ['label' => 'Cookiebot', 'cookie' => 'CookieConsent', 'contains' => 'statistics:true'],
-        'cookieyes' => ['label' => 'CookieYes', 'cookie' => 'cookieyes-consent', 'contains' => 'analytics:yes'],
-        'complianz' => ['label' => 'Complianz', 'cookie' => 'cmplz_statistics', 'contains' => 'allow'],
-        'onetrust' => ['label' => 'OneTrust', 'cookie' => 'OptanonConsent', 'contains' => 'C0002:1'],
+        'cookiebot' => 'Cookiebot',
+        'cookieyes' => 'CookieYes',
+        'complianz' => 'Complianz',
+        'onetrust' => 'OneTrust',
+        'cookieconsent' => 'CookieConsent (orestbida)',
     ];
 
     /**
@@ -139,35 +152,64 @@ JS;
 
     private function bannerCookieGrantsConsent(): bool
     {
-        foreach ($this->getBannerChecks() as $check) {
-            $value = $_COOKIE[$check['cookie']] ?? null;
-            if (!is_string($value)) {
-                continue;
+        $settings = ABTestCraft::getInstance()->getSettings();
+
+        if ($settings->consentCookie === 'auto') {
+            foreach (array_keys(self::BANNER_PRESETS) as $preset) {
+                if ($this->bannerGrants($preset)) {
+                    return true;
+                }
             }
-            if ($check['contains'] === '' || str_contains(rawurldecode($value), $check['contains'])) {
-                return true;
-            }
+            return false;
         }
 
-        return false;
+        return match ($settings->consentCookie) {
+            'custom' => $this->customCookieGrants(),
+            'none' => false,
+            default => $this->bannerGrants($settings->consentCookie),
+        };
     }
 
     /**
-     * @return array<int, array{cookie: string, contains: string}>
+     * Whether a consent banner's cookie says analytics/statistics consent was given
      */
-    private function getBannerChecks(): array
+    public function bannerGrants(string $preset): bool
+    {
+        $cookie = fn(string $name): ?string => is_string($_COOKIE[$name] ?? null)
+            ? rawurldecode($_COOKIE[$name])
+            : null;
+
+        switch ($preset) {
+            case 'cookiebot':
+                $value = $cookie('CookieConsent');
+                return $value !== null && ($value === '-1' || str_contains($value, 'statistics:true'));
+            case 'cookieyes':
+                $value = $cookie('cookieyes-consent');
+                return $value !== null && preg_match('/(?:^|,)analytics:yes(?:,|$)/', $value) === 1;
+            case 'complianz':
+                return ($cookie('cmplz_statistics') ?? $cookie('cmplz_rt_statistics')) === 'allow';
+            case 'onetrust':
+                $value = $cookie('OptanonConsent');
+                $group = preg_quote(ABTestCraft::getInstance()->getSettings()->consentOneTrustGroup, '/');
+                return $value !== null && preg_match("/(?:^|[=,]){$group}:1(?:[,&]|$)/", $value) === 1;
+            case 'cookieconsent':
+                $value = $cookie('cc_cookie');
+                $data = $value !== null ? json_decode($value, true) : null;
+                return is_array($data) && in_array('analytics', (array) ($data['categories'] ?? []), true);
+            default:
+                return false;
+        }
+    }
+
+    private function customCookieGrants(): bool
     {
         $settings = ABTestCraft::getInstance()->getSettings();
+        $value = $settings->consentCookieName !== '' ? ($_COOKIE[$settings->consentCookieName] ?? null) : null;
+        if (!is_string($value)) {
+            return false;
+        }
 
-        return match ($settings->consentCookie) {
-            'auto' => array_values(self::BANNER_PRESETS),
-            'custom' => $settings->consentCookieName !== ''
-                ? [['cookie' => $settings->consentCookieName, 'contains' => $settings->consentCookieValue]]
-                : [],
-            'none' => [],
-            default => isset(self::BANNER_PRESETS[$settings->consentCookie])
-                ? [self::BANNER_PRESETS[$settings->consentCookie]]
-                : [],
-        };
+        return $settings->consentCookieValue === ''
+            || str_contains(rawurldecode($value), $settings->consentCookieValue);
     }
 }

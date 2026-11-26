@@ -80,6 +80,9 @@ class Settings extends Model
      */
     public string $consentCookie = 'auto';
 
+    /** @var string OneTrust group ID for performance/analytics cookies (C0002 by default; varies per account) */
+    public string $consentOneTrustGroup = 'C0002';
+
     /** @var string Custom consent cookie name */
     public string $consentCookieName = '';
 
@@ -87,7 +90,16 @@ class Settings extends Model
     public string $consentCookieValue = '';
 
     public const CONSENT_SIGNALS = ['analytics_storage', 'personalization_storage', 'functionality_storage', ''];
-    public const CONSENT_COOKIES = ['auto', 'cookiebot', 'cookieyes', 'complianz', 'onetrust', 'custom', 'none'];
+    public const CONSENT_COOKIES = [
+        'auto',
+        'cookiebot',
+        'cookieyes',
+        'complianz',
+        'onetrust',
+        'cookieconsent',
+        'custom',
+        'none',
+    ];
 
     /**
      * Conversion counting mode:
@@ -128,6 +140,12 @@ class Settings extends Model
             [['consentModeSignal'], 'in', 'range' => self::CONSENT_SIGNALS],
             [['consentCookie'], 'in', 'range' => self::CONSENT_COOKIES],
             [['consentCookieName', 'consentCookieValue'], 'string', 'max' => 255],
+            [
+                ['consentOneTrustGroup'],
+                'match',
+                'pattern' => '/^[A-Za-z0-9_]{1,20}$/',
+                'message' => 'Use the group ID exactly as OneTrust shows it, such as C0002.',
+            ],
             [
                 ['consentCookieName'],
                 'match',

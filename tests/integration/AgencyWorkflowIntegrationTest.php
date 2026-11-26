@@ -36,7 +36,7 @@ class AgencyWorkflowIntegrationTest extends Unit
         foreach ([
             'minimumTestDays', 'significanceThreshold', 'minimumDetectableEffect', 'notificationEmails',
             'sendSignificanceEmail', 'requireConsent', 'consentModeSignal', 'consentCookie',
-            'consentCookieName', 'consentCookieValue',
+            'consentCookieName', 'consentCookieValue', 'consentOneTrustGroup',
         ] as $name) {
             $this->originalSettings[$name] = $settings->$name;
         }
@@ -309,6 +309,25 @@ class AgencyWorkflowIntegrationTest extends Unit
         $this->assertTrue($consent->hasConsent(), 'Complianz');
         $_COOKIE = ['OptanonConsent' => 'isGpcEnabled=0&groups=C0001%3A1%2CC0002%3A1%2CC0004%3A0'];
         $this->assertTrue($consent->hasConsent(), 'OneTrust');
+        $_COOKIE = ['OptanonConsent' => 'isGpcEnabled=0&groups=C0001%3A1%2CC0002%3A0%2CC00021%3A1'];
+        $this->assertFalse($consent->hasConsent(), 'OneTrust, performance declined (and C00021 is a different group)');
+        $settings->consentOneTrustGroup = 'C0005';
+        $_COOKIE = ['OptanonConsent' => 'groups=C0001:1,C0005:1'];
+        $this->assertTrue($consent->hasConsent(), 'OneTrust, custom group ID');
+        $settings->consentOneTrustGroup = 'C0002';
+
+        $_COOKIE = ['CookieConsent' => '-1'];
+        $this->assertTrue($consent->hasConsent(), 'Cookiebot: consent not required in this region');
+        $_COOKIE = ['cmplz_rt_statistics' => 'allow'];
+        $this->assertTrue($consent->hasConsent(), 'Complianz on a multisite root');
+        $_COOKIE = ['cmplz_statistics' => 'deny'];
+        $this->assertFalse($consent->hasConsent(), 'Complianz, declined');
+        $_COOKIE = ['cookieyes-consent' => 'consentid:abc,consent:yes,analytics:no,advertisement:yes'];
+        $this->assertFalse($consent->hasConsent(), 'CookieYes, analytics declined');
+        $_COOKIE = ['cc_cookie' => rawurlencode('{"categories":["necessary","analytics"],"revision":0}')];
+        $this->assertTrue($consent->hasConsent(), 'CookieConsent (orestbida)');
+        $_COOKIE = ['cc_cookie' => '{"categories":["necessary"]}'];
+        $this->assertFalse($consent->hasConsent(), 'CookieConsent, analytics declined');
 
         // An explicit no wins over a stale banner cookie
         $_COOKIE = ['cmplz_statistics' => 'allow', ConsentService::CONSENT_COOKIE => '0'];
@@ -440,6 +459,71 @@ class AgencyWorkflowIntegrationTest extends Unit
         } finally {
             Craft::$app->getDb()->createCommand()->delete('{{%abtestcraft_test_descendants}}', ['testId' => $test->id])->execute();
         }
+    }
+
+    // ========================================
+    // Edge cases
+    // ========================================
+
+    /**
+     * Restoring a test that was showing its winner doesn't show it again
+     * silently (another test may run on the page now)
+     */
+    public function testRestoringAServedWinnerDoesNotServeIt(): void
+    {
+        $test = $this->createTest(['status' => Test::STATUS_COMPLETED, 'winnerVariant' => Test::VARIANT_VARIANT, 'serveWinner' => true]);
+        $tests = ABTestCraft::getInstance()->tests;
+
+        $this->assertTrue($tests->deleteTest($test));
+        $this->assertNull($tests->getServingTestByControlEntryId($test->controlEntryId, $test->siteId), 'Not served from the trash');
+
+        $trashed = $tests->getTestById($test->id);
+        $this->assertTrue($tests->restoreTest($trashed));
+        $restored = $tests->getTestById($test->id);
+        $this->assertFalse($restored->isServingWinner());
+        $this->assertSame(Test::VARIANT_VARIANT, $restored->winnerVariant, 'The result is kept');
+        $this->assertTrue($tests->setServeWinner($restored, true));
+    }
+
+    public function testPausingClearsAPastStartTimeButKeepsAFutureOne(): void
+    {
+        $tests = ABTestCraft::getInstance()->tests;
+
+        $past = $this->createTest(['scheduledStartAt' => '-1 hour']);
+        $this->assertTrue($tests->pauseTest($past));
+        $this->assertNull($tests->getTestById($past->id)->scheduledStartAt, "Would restart at the next check");
+        ABTestCraft::getInstance()->rules->runSchedules();
+        $this->assertSame(Test::STATUS_PAUSED, $tests->getTestById($past->id)->status);
+
+        $future = $this->createTest(['scheduledStartAt' => '+1 day']);
+        $this->assertTrue($tests->pauseTest($future));
+        $this->assertNotNull($tests->getTestById($future->id)->scheduledStartAt, 'A planned resume');
+    }
+
+    public function testGuardrailSwitchedOnMidTestActsAtTheNextCheck(): void
+    {
+        $test = $this->createTest();
+        $this->addStats($test, 2000, 200, 2000, 120);
+        ABTestCraft::getInstance()->rules->checkTest($test);
+        $this->assertSame(Test::STATUS_RUNNING, ABTestCraft::getInstance()->tests->getTestById($test->id)->status);
+
+        $test->guardrail = ['enabled' => true];
+        $this->assertTrue(ABTestCraft::getInstance()->tests->saveTest($test));
+        ABTestCraft::getInstance()->rules->checkTest($test);
+        $this->assertSame(Test::STATUS_PAUSED, ABTestCraft::getInstance()->tests->getTestById($test->id)->status);
+    }
+
+    public function testWinnerRuleChangedMidTestAppliesAtTheNextCheck(): void
+    {
+        $test = $this->createTest();
+        $this->addStats($test, 3000, 300, 3000, 390);
+        ABTestCraft::getInstance()->rules->checkTest($test);
+        $this->assertSame(Test::STATUS_RUNNING, ABTestCraft::getInstance()->tests->getTestById($test->id)->status);
+
+        $test->whenWinnerFound = Test::WINNER_SERVE;
+        $this->assertTrue(ABTestCraft::getInstance()->tests->saveTest($test));
+        ABTestCraft::getInstance()->rules->checkTest($test);
+        $this->assertTrue(ABTestCraft::getInstance()->tests->getTestById($test->id)->isServingWinner());
     }
 
     // ========================================

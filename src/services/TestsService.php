@@ -484,12 +484,18 @@ class TestsService extends Component
             $record->status = Test::STATUS_PAUSED;
         }
 
+        // Likewise, a test that was showing its winner comes back without
+        // showing it: another test may run on that page now, and showing it
+        // again (from the results page) checks that and clears the page cache
+        $record->serveWinner = false;
+
         if (!$record->save()) {
             return false;
         }
 
         $test->dateDeleted = null;
         $test->status = $record->status;
+        $test->serveWinner = false;
 
         Craft::info("Split test '{$test->handle}' (ID: {$test->id}) restored from trash", 'abtestcraft');
 
@@ -575,6 +581,12 @@ class TestsService extends Component
         }
 
         $test->status = Test::STATUS_PAUSED;
+
+        // A start time that has already passed would restart the test at the
+        // next scheduled check; a future one is a planned resume and stays
+        if ($test->scheduledStartAt !== null && $test->scheduledStartAt <= new DateTime()) {
+            $test->scheduledStartAt = null;
+        }
 
         if (!$this->saveTest($test)) {
             return false;

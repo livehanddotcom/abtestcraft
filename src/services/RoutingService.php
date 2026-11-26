@@ -88,6 +88,17 @@ class RoutingService extends Component
             return;
         }
 
+        // Without its variant entry (trashed, or not on this site) a test can't
+        // show the variant, and counting visitors as "variant" while they see
+        // the original would corrupt the results
+        if (!$test->getVariantEntry()) {
+            Craft::warning(
+                "Test '{$test->handle}' is running but its variant entry is missing; nobody is assigned",
+                __METHOD__
+            );
+            return;
+        }
+
         $filter = ABTestCraft::getInstance()->visitorFilter;
         $previewVariant = $filter->getEditorPreviewVariant();
 

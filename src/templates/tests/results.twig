@@ -292,6 +292,16 @@
             {% endif %}
         </div>
 
+        {# A test can't run properly without both of its entries #}
+        {% if not test.isCompleted and (not test.controlEntry or not test.variantEntry) %}
+            <div class="st-warning">
+                <strong>This test's {{ not test.controlEntry ? 'original' : 'variant' }} entry is missing</strong>
+                (it may have been deleted). {{ not test.variantEntry ? 'Nobody is being assigned to the test while it\'s missing.' : 'Its page can\'t be shown.' }}
+                Restore the entry from the trash, or choose another entry on the test's settings page.
+                Permanently deleting a test's entry also deletes the test and its results.
+            </div>
+        {% endif %}
+
         {# Safety guardrail #}
         {% set guard = stats.guardrail %}
         {% if guard.status == 'triggered' %}

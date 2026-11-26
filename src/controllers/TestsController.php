@@ -235,8 +235,12 @@ class TestsController extends Controller
         $primaryGoalDisabled = $test->primaryGoalType !== null
             && empty($goalsData[$test->primaryGoalType]['isEnabled']);
 
-        // Schedule (date/time fields post in the editor's timezone)
-        $test->scheduledStartAt = DateTimeHelper::toDateTime($request->getBodyParam('scheduledStartAt')) ?: null;
+        // Schedule (date/time fields post in the editor's timezone). A running
+        // test has already started; a start time left on it would restart it
+        // if it were paused later.
+        $test->scheduledStartAt = $test->isRunning()
+            ? null
+            : (DateTimeHelper::toDateTime($request->getBodyParam('scheduledStartAt')) ?: null);
         $test->scheduledEndAt = DateTimeHelper::toDateTime($request->getBodyParam('scheduledEndAt')) ?: null;
 
         $test->whenWinnerFound = (string) $request->getBodyParam('whenWinnerFound', Test::WINNER_NOTIFY);
@@ -528,6 +532,7 @@ class TestsController extends Controller
         $test = $this->getPostedTest(true);
         // The stored status, not isRunning(): that's always false in the trash
         $wasRunning = $test->status === Test::STATUS_RUNNING;
+        $wasServing = $test->status === Test::STATUS_COMPLETED && $test->serveWinner;
 
         if (!ABTestCraft::getInstance()->tests->restoreTest($test)) {
             return $this->asFailure(Craft::t('abtestcraft', 'Could not restore test.'));
@@ -535,9 +540,14 @@ class TestsController extends Controller
 
         $this->clearTestCounts($test);
 
-        return $this->asSuccess($wasRunning
-            ? Craft::t('abtestcraft', 'Test restored and paused. Start it again when you’re ready.')
-            : Craft::t('abtestcraft', 'Test restored.'));
+        return $this->asSuccess(match (true) {
+            $wasRunning => Craft::t('abtestcraft', 'Test restored and paused. Start it again when you’re ready.'),
+            $wasServing => Craft::t(
+                'abtestcraft',
+                'Test restored. Its winner isn’t shown to everyone any more; show it again from its results page.'
+            ),
+            default => Craft::t('abtestcraft', 'Test restored.'),
+        });
     }
 
     /**

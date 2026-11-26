@@ -125,16 +125,26 @@
         id: 'consentCookie',
         name: 'consentCookie',
         options: [
-            { label: 'Detect automatically (Cookiebot, CookieYes, Complianz, OneTrust)', value: 'auto' },
+            { label: 'Detect automatically (all of the below)', value: 'auto' },
             { label: 'Cookiebot', value: 'cookiebot' },
             { label: 'CookieYes', value: 'cookieyes' },
             { label: 'Complianz', value: 'complianz' },
-            { label: 'OneTrust (Performance cookies, group C0002)', value: 'onetrust' },
+            { label: 'OneTrust', value: 'onetrust' },
+            { label: 'CookieConsent (orestbida)', value: 'cookieconsent' },
             { label: 'Custom cookie', value: 'custom' },
             { label: "Don't use a banner cookie", value: 'none' },
         ],
         value: settings.consentCookie,
         errors: settings.getErrors('consentCookie'),
+    }) }}
+
+    {{ forms.textField({
+        label: "OneTrust Group ID"|t('abtestcraft'),
+        instructions: "For OneTrust: the ID of your performance/analytics cookie group. It's C0002 unless your OneTrust account uses different IDs (check under Cookie Categories)."|t('abtestcraft'),
+        id: 'consentOneTrustGroup',
+        name: 'consentOneTrustGroup',
+        value: settings.consentOneTrustGroup,
+        errors: settings.getErrors('consentOneTrustGroup'),
     }) }}
 
     {{ forms.textField({
@@ -157,7 +167,7 @@
 
     <div class="field">
         <div class="instructions">
-            <p>For any other banner, call <code>ABTestCraft.setConsent(true)</code> (or <code>false</code>) from its JavaScript when the visitor chooses.</p>
+            <p>For any other banner, or one that keeps consent in the browser's storage rather than a cookie (such as Usercentrics), rely on Google Consent Mode or call <code>ABTestCraft.setConsent(true)</code> (or <code>false</code>) from its JavaScript when the visitor chooses.</p>
         </div>
     </div>
 </div>
