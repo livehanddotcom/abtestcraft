@@ -317,7 +317,7 @@ class TestsService extends Component
 
         $message = $existing['dateDeleted'] !== null
             ? 'This handle is used by a test in the trash. ' .
-                'Choose a different handle, or restore or permanently delete that test.'
+                'Choose a different handle, or restore or permanently delete that test from the Trash tab.'
             : 'This handle is already used by another test.';
 
         $test->addError('handle', Craft::t('abtestcraft', $message));
@@ -374,17 +374,19 @@ class TestsService extends Component
 
         $record->dateDeleted = null;
 
+        // A test that was running comes back paused, so restoring never
+        // silently sends visitors to the variant again. Starting it again goes
+        // through startTest(), which clears its pages from the page cache.
+        if ($record->status === Test::STATUS_RUNNING) {
+            $record->status = Test::STATUS_PAUSED;
+        }
+
         if (!$record->save()) {
             return false;
         }
 
         $test->dateDeleted = null;
-
-        // A restored running test goes live again; its pages may have been
-        // cached by Blitz while it was in the trash
-        if ($test->isRunning()) {
-            ABTestCraft::getInstance()->pageCache->clearTestPages($test);
-        }
+        $test->status = $record->status;
 
         Craft::info("Split test '{$test->handle}' (ID: {$test->id}) restored from trash", 'abtestcraft');
 

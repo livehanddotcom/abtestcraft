@@ -35,10 +35,76 @@
                 All
                 <span style="margin-left: 6px; padding: 2px 8px; background: {% if statusFilter == 'all' %}#e3f2fd{% else %}#e9ecef{% endif %}; border-radius: 10px; font-size: 12px;">{{ counts.all }}</span>
             </a>
+            <a href="{{ url('abtestcraft/tests', { status: 'trashed' }) }}"
+               class="tab{% if statusFilter == 'trashed' %} sel{% endif %}"
+               style="margin-left: auto; padding: 12px 20px; text-decoration: none; color: {% if statusFilter == 'trashed' %}#0d78f2{% else %}#3f4d5a{% endif %}; border-bottom: 2px solid {% if statusFilter == 'trashed' %}#0d78f2{% else %}transparent{% endif %}; font-weight: {% if statusFilter == 'trashed' %}600{% else %}normal{% endif %};">
+                Trash
+                <span style="margin-left: 6px; padding: 2px 8px; background: {% if statusFilter == 'trashed' %}#e3f2fd{% else %}#e9ecef{% endif %}; border-radius: 10px; font-size: 12px;">{{ counts.trashed }}</span>
+            </a>
         </nav>
     </div>
 
-    {% if tests|length %}
+    {% if statusFilter == 'trashed' %}
+        {% if tests|length %}
+            <p class="light">Tests in the trash don't run and can't be edited. Restore a test to use it again, or delete it permanently to remove it and all its results.</p>
+            <table class="data fullwidth">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Status before deleting</th>
+                        <th>Deleted</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in tests %}
+                        {% set test = item.test %}
+                        <tr>
+                            <td>
+                                <strong>{{ test.name }}</strong>
+                                <div class="light">{{ test.handle }}</div>
+                            </td>
+                            <td>{{ test.status|capitalize }}</td>
+                            <td>{{ test.dateDeleted|date('short') }}</td>
+                            <td class="thin" style="white-space: nowrap;">
+                                {% if canManageTests %}
+                                    <form method="post" style="display: inline;">
+                                        {{ csrfInput() }}
+                                        {{ actionInput('abtestcraft/tests/restore') }}
+                                        {{ redirectInput('abtestcraft/tests?status=trashed') }}
+                                        <input type="hidden" name="testId" value="{{ test.id }}">
+                                        <button type="submit" class="btn small">Restore</button>
+                                    </form>
+                                    <form method="post" style="display: inline;" class="abtestcraft-confirm"
+                                          data-confirm="{{ 'Permanently delete “{name}” and all its results? This can’t be undone.'|t('abtestcraft', { name: test.name }) }}">
+                                        {{ csrfInput() }}
+                                        {{ actionInput('abtestcraft/tests/delete-permanently') }}
+                                        {{ redirectInput('abtestcraft/tests?status=trashed') }}
+                                        <input type="hidden" name="testId" value="{{ test.id }}">
+                                        <button type="submit" class="btn small caution">Delete permanently</button>
+                                    </form>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            {% js %}
+                document.querySelectorAll('form.abtestcraft-confirm').forEach(function(form) {
+                    form.addEventListener('submit', function(e) {
+                        if (!window.confirm(form.dataset.confirm)) {
+                            e.preventDefault();
+                        }
+                    });
+                });
+            {% endjs %}
+        {% else %}
+            <div class="zilch">
+                <p>The trash is empty.</p>
+            </div>
+        {% endif %}
+    {% elseif tests|length %}
         <table class="data fullwidth">
             <thead>
                 <tr>
