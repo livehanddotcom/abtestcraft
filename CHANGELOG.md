@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Emails when the safety guardrail acts, when a winner is applied automatically, and when a schedule starts, ends or can't start.
 - **Weekly summary** email on Monday mornings (off by default).
 - A warning on ABTestCraft's control panel pages when emails are switched on but no notification address is set.
-- Microsoft Clarity sessions are tagged with each visitor's version (`abtestcraft_<test handle>`).
+- Microsoft Clarity sessions are tagged with each visitor's version (`abtestcraft_<test handle>`), however Clarity is added to the page, including later through a tag manager or after cookie consent.
 
 ### Changed
 - The "has a winner" email is sent once per test. It could repeat every hour while a test kept getting conversions.

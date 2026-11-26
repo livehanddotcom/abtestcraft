@@ -211,7 +211,7 @@ All emails go to the **Notification Emails** in the settings. If none are set, n
 
 ## Microsoft Clarity
 
-If Microsoft Clarity is on the page, each visitor's session is tagged with their version as a custom tag named `abtestcraft_<test handle>` (for example `abtestcraft_homepageHero` = `variant`). Filter Clarity's recordings and heatmaps by that tag to compare how people use each version. Nothing to set up.
+If Microsoft Clarity is on the page, each visitor's session is tagged with their version as a custom tag named `abtestcraft_<test handle>` (for example `abtestcraft_homepageHero` = `variant`). Filter Clarity's recordings and heatmaps by that tag to compare how people use each version. Nothing to set up. This works however Clarity is added, including later through a tag manager or only once a visitor accepts your cookie banner.
 
 ## Twig Variables
 
