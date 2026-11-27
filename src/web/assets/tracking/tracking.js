@@ -708,6 +708,26 @@
                 'abtestcraft_variant': variant
             });
         }
+
+        tagClaritySession();
+    }
+
+    /**
+     * Tag the Microsoft Clarity session (recordings and heatmaps) with the
+     * visitor's version, as a custom tag named abtestcraft_<test handle>, so
+     * Clarity can be filtered by version.
+     *
+     * Uses Clarity's own command queue: the same stub its snippet creates,
+     * which the snippet keeps if it already exists. Clarity applies queued
+     * commands when it loads, so the tag isn't missed when Clarity is added
+     * after the page loads (by a tag manager, or once a visitor accepts a
+     * cookie banner). Without Clarity, the queued command is never used.
+     */
+    function tagClaritySession() {
+        window.clarity = window.clarity || function () {
+            (window.clarity.q = window.clarity.q || []).push(arguments);
+        };
+        window.clarity('set', 'abtestcraft_' + testHandle, variant);
     }
 
     // Initialize when DOM is ready

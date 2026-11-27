@@ -92,6 +92,88 @@
 
 <hr>
 
+<h2>Consent</h2>
+
+{{ forms.lightswitchField({
+    label: "Require Consent"|t('abtestcraft'),
+    instructions: "Only include visitors who've given consent. Everyone else sees the original page, gets no cookies and isn't counted, and visitors who withdraw consent are taken out of tests. Results then only reflect visitors who consented, and a conversion on the page where someone first consents isn't counted (they join tests from their next page view)."|t('abtestcraft'),
+    id: 'requireConsent',
+    name: 'requireConsent',
+    on: settings.requireConsent,
+    toggle: 'consent-settings',
+}) }}
+
+<div id="consent-settings" class="{{ settings.requireConsent ? '' : 'hidden' }}">
+    {{ forms.selectField({
+        label: "Google Consent Mode Signal"|t('abtestcraft'),
+        instructions: "Most consent banners send Google Consent Mode. Which of its signals means a visitor can take part in tests? A/B testing measures behaviour, so `analytics_storage` (the \"analytics\" or \"statistics\" choice in most banners) fits most sites. Whether it's analytics or personalization is a legal call for each site."|t('abtestcraft'),
+        id: 'consentModeSignal',
+        name: 'consentModeSignal',
+        options: [
+            { label: 'analytics_storage (recommended)', value: 'analytics_storage' },
+            { label: 'personalization_storage', value: 'personalization_storage' },
+            { label: 'functionality_storage', value: 'functionality_storage' },
+            { label: "Don't use Google Consent Mode", value: '' },
+        ],
+        value: settings.consentModeSignal,
+        errors: settings.getErrors('consentModeSignal'),
+    }) }}
+
+    {{ forms.selectField({
+        label: "Consent Banner Cookie"|t('abtestcraft'),
+        instructions: "Also accept consent from a banner's own cookie (its analytics or statistics choice), for sites without Google's tag."|t('abtestcraft'),
+        id: 'consentCookie',
+        name: 'consentCookie',
+        options: [
+            { label: 'Detect automatically (all of the below)', value: 'auto' },
+            { label: 'Cookiebot', value: 'cookiebot' },
+            { label: 'CookieYes', value: 'cookieyes' },
+            { label: 'Complianz', value: 'complianz' },
+            { label: 'OneTrust', value: 'onetrust' },
+            { label: 'CookieConsent (orestbida)', value: 'cookieconsent' },
+            { label: 'Custom cookie', value: 'custom' },
+            { label: "Don't use a banner cookie", value: 'none' },
+        ],
+        value: settings.consentCookie,
+        errors: settings.getErrors('consentCookie'),
+    }) }}
+
+    {{ forms.textField({
+        label: "OneTrust Group ID"|t('abtestcraft'),
+        instructions: "For OneTrust: the ID of your performance/analytics cookie group. It's C0002 unless your OneTrust account uses different IDs (check under Cookie Categories)."|t('abtestcraft'),
+        id: 'consentOneTrustGroup',
+        name: 'consentOneTrustGroup',
+        value: settings.consentOneTrustGroup,
+        errors: settings.getErrors('consentOneTrustGroup'),
+    }) }}
+
+    {{ forms.textField({
+        label: "Custom Cookie Name"|t('abtestcraft'),
+        instructions: "For Custom cookie: the cookie your consent banner sets."|t('abtestcraft'),
+        id: 'consentCookieName',
+        name: 'consentCookieName',
+        value: settings.consentCookieName,
+        errors: settings.getErrors('consentCookieName'),
+    }) }}
+
+    {{ forms.textField({
+        label: "Custom Cookie Value Contains"|t('abtestcraft'),
+        instructions: "For Custom cookie: text its value contains when consent is given (for example `analytics:true`). Leave empty if the cookie only exists after consent."|t('abtestcraft'),
+        id: 'consentCookieValue',
+        name: 'consentCookieValue',
+        value: settings.consentCookieValue,
+        errors: settings.getErrors('consentCookieValue'),
+    }) }}
+
+    <div class="field">
+        <div class="instructions">
+            <p>For any other banner, or one that keeps consent in the browser's storage rather than a cookie (such as Usercentrics), rely on Google Consent Mode or call <code>ABTestCraft.setConsent(true)</code> (or <code>false</code>) from its JavaScript when the visitor chooses.</p>
+        </div>
+    </div>
+</div>
+
+<hr>
+
 <h2>Rate Limiting</h2>
 
 {{ forms.textField({
@@ -140,15 +222,23 @@
 
 {{ forms.lightswitchField({
     label: "Send Significance Email"|t('abtestcraft'),
-    instructions: "Send an email when a test has a winner: it's statistically significant, has reached its planned sample size and has run the minimum number of days."|t('abtestcraft'),
+    instructions: "Send an email when a test has a winner: it's statistically significant, has reached its planned sample size and has run the minimum number of days. Sent once per test."|t('abtestcraft'),
     id: 'sendSignificanceEmail',
     name: 'sendSignificanceEmail',
     on: settings.sendSignificanceEmail,
 }) }}
 
+{{ forms.lightswitchField({
+    label: "Send Weekly Summary"|t('abtestcraft'),
+    instructions: "Every Monday morning, an email with how each running test is doing. Off until you switch it on."|t('abtestcraft'),
+    id: 'sendWeeklySummary',
+    name: 'sendWeeklySummary',
+    on: settings.sendWeeklySummary,
+}) }}
+
 {{ forms.textField({
     label: "Notification Emails"|t('abtestcraft'),
-    instructions: "Comma-separated list of email addresses to notify."|t('abtestcraft'),
+    instructions: "Comma-separated list of email addresses to notify. All ABTestCraft emails go here, including safety guardrail and schedule emails, which are always sent when an address is set."|t('abtestcraft'),
     id: 'notificationEmails',
     name: 'notificationEmails',
     value: settings.notificationEmails,

@@ -26,6 +26,13 @@ use yii\db\ActiveQueryInterface;
  * @property string $goalType
  * @property string|null $goalValue
  * @property string|null $primaryGoalType
+ * @property \DateTime|string|null $scheduledStartAt
+ * @property \DateTime|string|null $scheduledEndAt
+ * @property bool $serveWinner
+ * @property string $whenWinnerFound
+ * @property array|string|null $guardrail
+ * @property \DateTime|string|null $guardrailTriggeredAt
+ * @property string|null $guardrailMessage
  * @property \DateTime|null $startedAt
  * @property \DateTime|null $endedAt
  * @property string|null $winnerVariant

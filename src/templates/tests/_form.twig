@@ -10,7 +10,10 @@
 {% block content %}
     <input type="hidden" name="action" value="abtestcraft/tests/save">
     {{ csrfInput() }}
-    {{ redirectInput('abtestcraft/tests/{id}') }}
+    {# The site a new test is created on (tests belong to one site) #}
+    {% if isNew and test.siteId %}{{ hiddenInput('siteId', test.siteId) }}{% endif %}
+    {% set testSite = test.siteId ? craft.app.sites.getSiteById(test.siteId) : null %}
+    {{ redirectInput('abtestcraft/tests/{id}' ~ (craft.app.isMultiSite and testSite ? '?site=' ~ testSite.handle : '')) }}
 
     {% if test.id %}
         <input type="hidden" name="testId" value="{{ test.id }}">
@@ -64,6 +67,9 @@
     <hr>
 
     <h2>Test Pages</h2>
+    {% if craft.app.isMultiSite and test.siteId %}
+        <p class="light" style="margin-top: -8px;">On the {{ craft.app.sites.getSiteById(test.siteId).name|t('site') }} site. Both entries are chosen from that site.</p>
+    {% endif %}
 
     {{ forms.elementSelectField({
         label: "Control Entry (Original)"|t('abtestcraft'),
@@ -72,6 +78,8 @@
         name: 'controlEntryId',
         elementType: 'craft\\elements\\Entry',
         single: true,
+        criteria: { siteId: test.siteId },
+        showSiteMenu: false,
         elements: controlEntry ? [controlEntry] : [],
         selectionLabel: 'Choose an entry'|t('abtestcraft'),
         required: true,
@@ -100,6 +108,8 @@
         name: 'variantEntryId',
         elementType: 'craft\\elements\\Entry',
         single: true,
+        criteria: { siteId: test.siteId },
+        showSiteMenu: false,
         elements: variantEntry ? [variantEntry] : [],
         selectionLabel: 'Choose an entry'|t('abtestcraft'),
         required: true,
@@ -212,8 +222,9 @@
                         {% if availableForms|length > 0 %}
                             {% for form in availableForms %}
                                 <div style="margin-bottom: 8px;">
+                                    {# Plain text: Craft escapes checkbox labels, so HTML here showed as code #}
                                     {{ forms.checkbox({
-                                        label: form.name ~ ' <span style="color: #8f98a8; font-weight: normal;">(' ~ form.pluginName ~ ')</span>',
+                                        label: form.name ~ ' (' ~ form.pluginName ~ ')',
                                         name: 'goals[form][config][forms][]',
                                         value: form.plugin ~ ':' ~ form.handle,
                                         checked: (form.plugin ~ ':' ~ form.handle) in selectedForms,
@@ -599,6 +610,143 @@ ABTestCraft.trackConversion('your-event-name');</code>
         value: test.primaryGoalType ?? '',
         errors: test.getErrors('primaryGoalType'),
     }) }}
+
+    <hr>
+
+    <h2>Schedule</h2>
+    <p class="light" style="margin-bottom: 16px;">Optional. Leave empty to start and end the test yourself. Times are in your time zone.</p>
+
+    {{ forms.dateTimeField({
+        label: "Start"|t('abtestcraft'),
+        instructions: "Start the test automatically at this time."|t('abtestcraft'),
+        id: 'scheduledStartAt',
+        name: 'scheduledStartAt',
+        value: test.scheduledStartAt,
+        errors: test.getErrors('scheduledStartAt'),
+    }) }}
+
+    {{ forms.dateTimeField({
+        label: "End"|t('abtestcraft'),
+        instructions: "End the test automatically at this time. If a winner can be called by then, it's recorded (and shown to everyone, if chosen below)."|t('abtestcraft'),
+        id: 'scheduledEndAt',
+        name: 'scheduledEndAt',
+        value: test.scheduledEndAt,
+        errors: test.getErrors('scheduledEndAt'),
+    }) }}
+
+    <hr>
+
+    {{ forms.selectField({
+        label: "When a Winner Is Found"|t('abtestcraft'),
+        instructions: "What happens once a winner can be called (the test has reached its planned sample size and minimum duration, and the result is significant)."|t('abtestcraft'),
+        id: 'whenWinnerFound',
+        name: 'whenWinnerFound',
+        options: [
+            { label: 'Email me, and keep the test running (default)', value: 'notify' },
+            { label: 'End the test', value: 'end' },
+            { label: 'End the test, and show the winning variant to everyone', value: 'serve' },
+        ],
+        value: test.whenWinnerFound ?? 'notify',
+        errors: test.getErrors('whenWinnerFound'),
+    }) }}
+
+    <hr>
+
+    {# Safety guardrail #}
+    {% set guardrail = test.getGuardrail() %}
+    <h2>Safety Guardrail</h2>
+
+    {{ forms.lightswitchField({
+        label: "Pause the test if the variant is clearly doing much worse"|t('abtestcraft'),
+        instructions: "Protects your conversions while a test runs. It only acts on large drops that are very unlikely to be chance, so it doesn't raise false alarms."|t('abtestcraft'),
+        id: 'guardrail-enabled',
+        name: 'guardrail[enabled]',
+        on: guardrail.enabled,
+        toggle: 'guardrail-settings',
+        errors: test.getErrors('guardrail'),
+    }) }}
+
+    <div id="guardrail-settings" class="{{ guardrail.enabled ? '' : 'hidden' }}" style="padding: 16px; background: #f8fafc; border-radius: 6px; margin-bottom: 24px;">
+        <div style="padding: 12px; background: #fffbeb; border: 1px solid #fcd34d; border-radius: 6px; color: #92400e; margin-bottom: 16px; font-size: 13px; line-height: 1.5;">
+            <strong>On lower-traffic sites, the guardrail often won't trigger until each version has a few thousand visitors.</strong>
+            Catching a 25% drop typically takes about 3,000 visitors per version when the original converts at 10%, and about 6,500 at 5%.
+            Only very large drops are caught sooner. It's a safety net that avoids false alarms, not a substitute for checking your results.
+        </div>
+
+        {{ forms.textField({
+            label: "Pause when the variant converts at least this much worse (%)"|t('abtestcraft'),
+            instructions: "Relative drop compared with the original: 25% means 4% instead of 5%."|t('abtestcraft'),
+            id: 'guardrail-drop',
+            name: 'guardrail[drop]',
+            type: 'number',
+            min: 5,
+            max: 90,
+            value: guardrail.drop,
+        }) }}
+
+        {{ forms.selectField({
+            label: "On this goal"|t('abtestcraft'),
+            id: 'guardrail-goalType',
+            name: 'guardrail[goalType]',
+            options: [
+                { label: 'The primary goal', value: '' },
+                { label: 'Form Submissions', value: 'form' },
+                { label: 'Phone Clicks', value: 'phone' },
+                { label: 'Email Clicks', value: 'email' },
+                { label: 'File Downloads', value: 'download' },
+                { label: 'Page Visit', value: 'page' },
+                { label: 'Custom Event', value: 'custom' },
+            ],
+            value: guardrail.goalType ?? '',
+        }) }}
+
+        {{ forms.selectField({
+            label: "How sure it must be"|t('abtestcraft'),
+            instructions: "How unlikely the drop must be to be chance. Lower levels react sooner on low traffic, but raise more false alarms."|t('abtestcraft'),
+            id: 'guardrail-confidence',
+            name: 'guardrail[confidence]',
+            options: [
+                { label: 'Extremely sure (99.5%)', value: '0.995' },
+                { label: 'Very sure (99%), recommended', value: '0.99' },
+                { label: 'Sure (97.5%), more false alarms', value: '0.975' },
+                { label: 'Fairly sure (95%), noticeably more false alarms', value: '0.95' },
+            ],
+            value: guardrail.confidence|string,
+        }) }}
+
+        {{ forms.textField({
+            label: "Wait for at least this many visitors per version"|t('abtestcraft'),
+            instructions: "It never acts before this, however the numbers look. Minimum 100."|t('abtestcraft'),
+            id: 'guardrail-minVisitors',
+            name: 'guardrail[minVisitors]',
+            type: 'number',
+            min: 100,
+            value: guardrail.minVisitors,
+        }) }}
+
+        {{ forms.textField({
+            label: "And at least this many conversions on the original"|t('abtestcraft'),
+            instructions: "Minimum 10."|t('abtestcraft'),
+            id: 'guardrail-minConversions',
+            name: 'guardrail[minConversions]',
+            type: 'number',
+            min: 10,
+            value: guardrail.minConversions,
+        }) }}
+
+        {{ forms.selectField({
+            label: "When it triggers"|t('abtestcraft'),
+            id: 'guardrail-action',
+            name: 'guardrail[action]',
+            options: [
+                { label: 'Pause the test (recommended): everyone sees the original, data is kept', value: 'pause' },
+                { label: 'End the test, with the original as the winner', value: 'end' },
+            ],
+            value: guardrail.action,
+        }) }}
+
+        <p class="light" style="margin: 0; font-size: 12px;">You'll get an email when it triggers (to the Notification Emails in the settings).</p>
+    </div>
 
     {# Keep legacy fields for backward compatibility (hidden) #}
     <input type="hidden" name="goalType" value="{{ test.goalType ?? 'form' }}">

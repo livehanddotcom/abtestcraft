@@ -15,7 +15,11 @@ A/B testing for Craft CMS 5 - test page variations and track conversions with st
 - **GA4/GTM Integration**: Push events to dataLayer for analytics tracking
 - **SEO Protection**: Automatic noindex/canonical tags on variant entries
 - **Cascade Support**: Child pages inherit parent's variant assignment
-- **Privacy-Friendly**: First-party cookies only, no external trackers
+- **Privacy-Friendly**: First-party cookies only, no external trackers, and an optional consent mode (Google Consent Mode, Cookiebot, CookieYes, Complianz, OneTrust)
+- **Scheduling**: Start and end tests automatically
+- **Apply the Winner**: Show a winning variant to everyone on the original page, by hand or automatically when a winner is found
+- **Safety Guardrail**: Optionally pause a test whose variant is clearly doing much worse, built to avoid false alarms
+- **Microsoft Clarity**: Sessions are tagged with each visitor's version, for recordings and heatmaps per version
 
 ## Requirements
 
@@ -118,8 +122,15 @@ Configure global settings in **ABTestCraft > Settings**:
 | Enable dataLayer | Off | Push events to GA4/GTM |
 | Exclude Bots | On | Known bots and crawlers see the control and aren't counted |
 | Exclude Control Panel Users | On | People logged in with control panel access see the control and aren't counted |
+| Require Consent | Off | Only include visitors who've given consent (see [Consent Mode](#consent-mode)) |
+| Send Weekly Summary | Off | A Monday-morning email with how each running test is doing |
 
-Each test also has a **Primary Goal** (on its settings page): the goal its result is judged on. "Any goal" (the default) counts a visitor who completed any of the test's enabled goals.
+Each test also has, on its settings page:
+
+- **Primary Goal**: the goal its result is judged on. "Any goal" (the default) counts a visitor who completed any of the test's enabled goals.
+- **Schedule**: optional start and end times (see [Scheduling](#scheduling)).
+- **When a Winner Is Found**: email only (default), end the test, or end it and show the winner to everyone (see [Applying the Winner](#applying-the-winner)).
+- **Safety Guardrail**: optional, off by default (see [Safety Guardrail](#safety-guardrail)).
 
 ## How Results Are Calculated
 
@@ -139,6 +150,68 @@ Only real visitors take part in tests. These see the control, get no cookies and
 - **Previews**: Live Preview and shared preview links.
 
 To see a variant on the real page while logged in, add `?abtestcraft=variant` (or `?abtestcraft=control`) to the tested page's URL. Those views are never counted, and the parameter is ignored for visitors who aren't logged in.
+
+## Scheduling
+
+Give a test a start time, an end time, or both, on its settings page. A scheduled test starts by itself (clearing its pages from the Blitz cache, as starting does) and ends by itself. At the end, a winner is recorded if one can be called by then, and shown to everyone if the test is set to.
+
+Schedules are checked during normal site traffic, at most once a minute. On quiet sites, run the check from cron every few minutes so tests start and end on time:
+
+```bash
+*/5 * * * * /path/to/project/craft abtestcraft/tests/run-scheduled
+```
+
+If a scheduled test can't start (for example, its page is already in another running test), its schedule is cleared and you're emailed why.
+
+## Applying the Winner
+
+When a test's variant wins, ABTestCraft can **show the variant to everyone** on the original page's URL, with no cookies or tracking. Child pages follow, the variant's own URL keeps pointing search engines at the original (canonical), and the pages can be cached normally. Choose **Variant Wins, Show It to Everyone** when ending a test, use **Show the variant to everyone** on a completed test's results page, or set the test's **When a Winner Is Found** to do it automatically. **Stop showing the variant** puts the original back at any time. Blitz's cache for the page is cleared (and purged, with a Blitz purger) whenever this changes. Any other CDN needs purging yourself, see [Static & Full-Page Caching](#static--full-page-caching-blitz-cdns).
+
+The original entry still supplies anything that SEO plugins build from the page's own entry, such as its title and meta description. To make the change permanent, copy the variant's content into the original entry, then stop showing the variant. Another test can't run on a page while a winner is being shown there.
+
+**When a Winner Is Found** can also just end the test, or (the default) only email you. Like the results page, it only acts once a winner can be called: the test has reached its planned sample size and minimum duration, and the result is significant.
+
+## Safety Guardrail
+
+An optional per-test setting that pauses a test (or ends it with the original as the winner) if the variant is clearly doing much worse than the original, so a bad variant doesn't cost conversions for weeks. You choose the drop (25% by default), the goal (the primary goal by default), how sure it must be, and the minimum data before it can act.
+
+It's built to avoid false alarms. It only acts when **all** of these are true:
+
+- the variant converts at least the chosen percentage worse than the original
+- the drop is very unlikely to be chance: 99% confidence by default, on a sequential test that stays reliable however often it's checked (a naive "25% behind" rule fires constantly early in a test, when differences are mostly luck)
+- each version has at least 250 visitors and the original at least 25 conversions (adjustable)
+
+In simulations of 500 tests where both versions were identical and checked every 100 visitors up to 6,000, it never triggered at a 10% conversion rate, and triggered 3 times at 5%. A naive "25% behind" rule triggered in 89 of them.
+
+**On lower-traffic sites, the guardrail often won't trigger until each version has a few thousand visitors.** Catching a 25% drop typically takes about 3,000 visitors per version when the original converts at 10%, and about 6,500 at 5%; only very large drops are caught sooner. It's a safety net, not a substitute for checking your results. The results page shows whether it's waiting for data, watching, or has acted.
+
+When it triggers, every visitor sees the original again, the test's data is kept, and you're emailed why. If you start a paused test again with the same settings, it pauses again unless the results change.
+
+## Consent Mode
+
+With **Require Consent** switched on, only visitors who've given consent take part. Everyone else sees the original page, gets no cookies and isn't counted. Visitors who withdraw consent are taken out of tests and lose ABTestCraft's cookies. Consent comes from any of:
+
+- **Google Consent Mode**, which most consent banners send. ABTestCraft watches the `analytics_storage` signal by default (A/B testing measures behaviour, the "analytics" or "statistics" choice in most banners); you can choose `personalization_storage` or `functionality_storage` instead. Whether A/B testing counts as analytics or personalization is a legal call for each site.
+- **A consent banner's own cookie**: Cookiebot, CookieYes, Complianz or OneTrust (detected automatically), or a custom cookie name and value.
+- **JavaScript**: call `ABTestCraft.setConsent(true)` (or `false`) when the visitor chooses.
+
+Results then only reflect visitors who consented. Visitors join tests from the page view after they consent, so a conversion on the page where someone first consents isn't counted. Changing these settings changes the small script on every page; saving them in the control panel refreshes the Blitz cache, but if you set them in `config/abtestcraft.php`, refresh your Blitz cache (or purge your CDN) yourself.
+
+## Emails
+
+All emails go to the **Notification Emails** in the settings. If none are set, nothing is sent, and the control panel warns you on ABTestCraft's pages.
+
+| Email | When |
+|-------|------|
+| A test has a winner | Once per test, when a winner can be called (switch off with **Send Significance Email**) |
+| Winner applied | When **When a Winner Is Found** ends a test |
+| Safety guardrail | When the guardrail pauses or ends a test |
+| Scheduled start, end or failed start | When a schedule acts |
+| Weekly summary | Monday mornings, when switched on (off by default) |
+
+## Microsoft Clarity
+
+If Microsoft Clarity is on the page, each visitor's session is tagged with their version as a custom tag named `abtestcraft_<test handle>` (for example `abtestcraft_homepageHero` = `variant`). Filter Clarity's recordings and heatmaps by that tag to compare how people use each version. Nothing to set up. This works however Clarity is added, including later through a tag manager or only once a visitor accepts your cookie banner.
 
 ## Twig Variables
 
@@ -237,6 +310,10 @@ Sent by the page-visit beacon. Records page-visit goals for the requesting visit
 
 # Print a test's results as CSV (only the CSV goes to standard output)
 ./craft abtestcraft/tests/export <testId or handle> > results.csv
+
+# Run scheduled starts and ends, safety guardrails, "When a winner is found" and the weekly summary now
+# (they also run during site traffic; run this from cron on quiet sites)
+./craft abtestcraft/tests/run-scheduled
 ```
 
 Test IDs are shown by `abtestcraft/tests/list`. Before 1.0.2 the commands were `./craft abtestcraft/a-b-test-craft/<command>`; that form still works. Child-page (cascade) mappings don't need a command: they're rebuilt automatically when a test is saved and when entries under a tested page are moved or added.
@@ -269,6 +346,8 @@ Only the pages under test skip the cache, and only while the test is running. Ev
 
 If your CDN ignores origin `Cache-Control` headers (for example, a Cloudflare "Cache Everything" rule), add a bypass rule for the tested URLs while the test runs.
 
+If a CDN or reverse proxy caches your pages and Blitz doesn't purge it (no Blitz purger is set up for it, or you don't use Blitz), purge the page's URL from the CDN yourself when you start a test on it, and when you start or stop showing a winner. Until then, the CDN keeps serving its cached copy: a page cached before the test started gets no visitors assigned, and the original page doesn't come back after you stop showing the variant. With a Blitz purger (such as Cloudflare), ABTestCraft purges these pages automatically.
+
 Pages that were cached before you updated to 1.1.0 don't include the page-visit beacon yet. Refresh your Blitz cache (or purge your CDN) once after updating, so page-visit goals are counted on cached pages too.
 
 ## Data Retention & Backup
@@ -286,6 +365,7 @@ The plugin creates the following tables that should be included in your backup s
 | `abtestcraft_daily_stats` | Aggregated statistics | Low (one row per day/variant/goal) |
 | `abtestcraft_test_descendants` | Child pages of each tested page (cascade support) | Low (rebuilt automatically) |
 | `abtestcraft_rate_limits` | Rate limiting cache | Self-cleaning (auto-purges old entries) |
+| `abtestcraft_state` | Plugin state, such as when the weekly summary was last sent | Tiny |
 
 ### Data Retention
 
@@ -311,6 +391,7 @@ abtestcraft_visitors
 abtestcraft_visitor_goals
 abtestcraft_daily_stats
 abtestcraft_test_descendants
+abtestcraft_state
 ```
 
 The `abtestcraft_rate_limits` table is transient and doesn't need to be backed up.

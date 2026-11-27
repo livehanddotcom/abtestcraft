@@ -72,7 +72,7 @@ class m261125_000002_add_visitor_goals_table extends Migration
             }
             if ($insert) {
                 $columns = ['testId', 'visitorId', 'goalType', 'dateCreated', 'dateUpdated', 'uid'];
-                $this->batchInsert(self::TABLE, $columns, $insert, false);
+                $this->batchInsert(self::TABLE, $columns, $insert);
             }
         }
 

@@ -55,7 +55,7 @@ class PageVisitService extends Component
             }
 
             $goal = ABTestCraft::getInstance()->goals->getGoalByTestAndType((int) $test->id, Goal::TYPE_PAGE);
-            if (!$goal || !$goal->isEnabled || !$goal->matchesPageUrl($url)) {
+            if (!$goal || !$goal->isEnabled || !$goal->matchesPageUrl($url, $this->getSitePath((int) $test->siteId))) {
                 continue;
             }
 
@@ -65,6 +65,17 @@ class PageVisitService extends Component
         }
 
         return $counted;
+    }
+
+    /**
+     * The path a site lives under ("fr" for https://example.com/fr/), or null
+     */
+    private function getSitePath(int $siteId): ?string
+    {
+        $site = Craft::$app->getSites()->getSiteById($siteId);
+        $path = $site ? parse_url((string) $site->getBaseUrl(), PHP_URL_PATH) : null;
+
+        return is_string($path) && trim($path, '/') !== '' ? trim($path, '/') : null;
     }
 
     /**

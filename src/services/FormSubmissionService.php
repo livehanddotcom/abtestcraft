@@ -203,8 +203,11 @@ class FormSubmissionService extends Component
             return;
         }
 
-        // Bots and control panel users aren't counted (see VisitorFilterService)
+        // Bots, control panel users and visitors without consent aren't
+        // counted (see VisitorFilterService); a visitor who withdrew consent
+        // also loses their cookies
         if (ABTestCraft::getInstance()->visitorFilter->shouldExcludeRequest()) {
+            ABTestCraft::getInstance()->consent->removeCookiesWithoutConsent();
             return;
         }
 

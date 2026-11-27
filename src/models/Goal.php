@@ -218,7 +218,7 @@ class Goal extends Model
      * script's urlMatchesPath(): case-insensitive, compares paths only
      * (scheme, host, query string and fragment are ignored).
      */
-    public function matchesPageUrl(string $url): bool
+    public function matchesPageUrl(string $url, ?string $sitePath = null): bool
     {
         $goalUrl = $this->getPageUrl();
         if ($goalUrl === null || trim($goalUrl) === '') {
@@ -234,12 +234,29 @@ class Goal extends Model
 
         $path = $normalize($url);
         $goal = $normalize(trim($goalUrl));
+        $paths = [$path];
 
-        return match ($this->getMatchType()) {
-            self::MATCH_STARTS_WITH => str_starts_with($path, $goal),
-            self::MATCH_CONTAINS => str_contains($path, $goal),
-            default => $path === $goal,
-        };
+        // On a site under a path (e.g. /fr/), "/thank-you" also matches
+        // /fr/thank-you, so a goal can be entered as the site's own path
+        $sitePath = $sitePath !== null ? trim(strtolower($sitePath), '/') : '';
+        if ($sitePath !== '' && str_starts_with($path, "/{$sitePath}/")) {
+            $paths[] = substr($path, strlen($sitePath) + 1);
+        } elseif ($sitePath !== '' && $path === "/{$sitePath}") {
+            $paths[] = '/';
+        }
+
+        foreach ($paths as $candidate) {
+            $matches = match ($this->getMatchType()) {
+                self::MATCH_STARTS_WITH => str_starts_with($candidate, $goal),
+                self::MATCH_CONTAINS => str_contains($candidate, $goal),
+                default => $candidate === $goal,
+            };
+            if ($matches) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

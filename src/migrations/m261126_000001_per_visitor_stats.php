@@ -64,6 +64,15 @@ class m261126_000001_per_visitor_stats extends Migration
         $this->utc = new DateTimeZone('UTC');
         $this->siteZone = new DateTimeZone(Craft::$app->getTimeZone());
 
+        // Postgres plans the per-batch visitor goal lookups below from table
+        // statistics. Upgrading from 1.0, the visitor goals table was created
+        // and filled by the previous migration moments ago and has none yet,
+        // so every lookup would scan the whole table: hours on large sites.
+        if ($this->db->getIsPgsql()) {
+            $this->execute('ANALYZE {{%abtestcraft_visitor_goals}}');
+            $this->execute('ANALYZE {{%abtestcraft_visitors}}');
+        }
+
         $testIds = (new Query())->select(['id'])->from(self::TESTS)->column($this->db);
         foreach ($testIds as $testId) {
             $this->backfillTest((int) $testId);
@@ -149,7 +158,7 @@ class m261126_000001_per_visitor_stats extends Migration
                     StringHelper::UUID(),
                 ], $newSlots);
                 $columns = ['testId', 'visitorId', 'goalType', 'dateCreated', 'dateUpdated', 'uid'];
-                $this->batchInsert(self::GOALS, $columns, $insert, false);
+                $this->batchInsert(self::GOALS, $columns, $insert);
             }
         }
 

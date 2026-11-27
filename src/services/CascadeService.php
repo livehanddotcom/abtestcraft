@@ -153,9 +153,19 @@ class CascadeService extends Component
      * Get cascade info for an entry if it's a descendant of a running test
      * Returns null if no test affects this entry
      */
-    public function getCascadeInfo(int $entryId, ?int $siteId = null): ?array
+    public function getCascadeInfo(int $entryId, ?int $siteId = null, bool $servingWinner = false): ?array
     {
         $siteId = $siteId ?? Craft::$app->getSites()->getCurrentSite()->id;
+
+        // Running tests, or (with $servingWinner) completed tests showing
+        // their winning variant to everyone
+        $testCondition = $servingWinner
+            ? [
+                't.status' => Test::STATUS_COMPLETED,
+                't.serveWinner' => true,
+                't.winnerVariant' => Test::VARIANT_VARIANT,
+            ]
+            : ['t.status' => Test::STATUS_RUNNING];
 
         // Get all cascade records for this entry, ordered by depth (nearest first)
         $records = (new Query())
@@ -165,9 +175,8 @@ class CascadeService extends Component
             ->where([
                 'td.descendantEntryId' => $entryId,
                 'td.siteId' => $siteId,
-                't.status' => Test::STATUS_RUNNING,
                 't.dateDeleted' => null,
-            ])
+            ] + $testCondition)
             ->orderBy(['td.depth' => SORT_ASC])
             ->all();
 

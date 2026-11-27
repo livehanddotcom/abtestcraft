@@ -66,12 +66,17 @@ class SeoService extends Component
     private function findTestWhereEntryIsVariant(Entry $entry): ?Test
     {
         // Direct query instead of iterating all tests
+        // While a test runs, and while its winning variant is shown on the
+        // original URL, the variant's own URL is a duplicate of that page
         $record = TestRecord::find()
             ->where([
                 'variantEntryId' => $entry->id,
                 'siteId' => $entry->siteId,
-                'status' => Test::STATUS_RUNNING,
                 'dateDeleted' => null,
+            ])
+            ->andWhere(['or',
+                ['status' => Test::STATUS_RUNNING],
+                ['status' => Test::STATUS_COMPLETED, 'serveWinner' => true, 'winnerVariant' => Test::VARIANT_VARIANT],
             ])
             ->one();
 

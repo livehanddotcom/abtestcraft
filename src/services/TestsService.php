@@ -9,6 +9,8 @@ use craft\base\Component;
 use craft\db\Query;
 use craft\elements\Entry;
 use craft\helpers\DateTimeHelper;
+use craft\helpers\Db;
+use craft\helpers\Json;
 use livehand\abtestcraft\models\Test;
 use livehand\abtestcraft\records\TestRecord;
 use livehand\abtestcraft\ABTestCraft;
@@ -267,6 +269,13 @@ class TestsService extends Component
         $record->goalType = $test->goalType;
         $record->goalValue = $test->goalValue;
         $record->primaryGoalType = $test->primaryGoalType;
+        $record->scheduledStartAt = $test->scheduledStartAt;
+        $record->scheduledEndAt = $test->scheduledEndAt;
+        $record->serveWinner = $test->serveWinner;
+        $record->whenWinnerFound = $test->whenWinnerFound;
+        $record->guardrail = $test->guardrail;
+        $record->guardrailTriggeredAt = $test->guardrailTriggeredAt;
+        $record->guardrailMessage = $test->guardrailMessage;
         $record->startedAt = $test->startedAt;
         $record->endedAt = $test->endedAt;
         $record->winnerVariant = $test->winnerVariant;
@@ -311,8 +320,13 @@ class TestsService extends Component
             return null;
         }
 
+        // Running tests, and completed tests showing their winner to everyone
         $query = TestRecord::find()
-            ->where(['status' => Test::STATUS_RUNNING, 'dateDeleted' => null])
+            ->where(['dateDeleted' => null])
+            ->andWhere(['or',
+                ['status' => Test::STATUS_RUNNING],
+                ['status' => Test::STATUS_COMPLETED, 'serveWinner' => true, 'winnerVariant' => Test::VARIANT_VARIANT],
+            ])
             ->andWhere(['siteId' => $test->siteId ?? Craft::$app->getSites()->getCurrentSite()->id]);
         if ($test->id) {
             $query->andWhere(['not', ['id' => $test->id]]);
@@ -365,6 +379,11 @@ class TestsService extends Component
 
     private function overlapMessage(Test $overlapping): string
     {
+        if ($overlapping->isServingWinner()) {
+            return "This page is showing the winner of the test \"{$overlapping->name}\" to everyone. "
+                . 'Stop showing that winner first.';
+        }
+
         return "This page is already part of the running test \"{$overlapping->name}\". "
             . 'Pause or complete that test first: a page can only be in one running test at a time.';
     }
@@ -419,13 +438,19 @@ class TestsService extends Component
         }
 
         // Soft delete by setting dateDeleted
-        $record->dateDeleted = (new DateTime())->format('Y-m-d H:i:s');
+        $record->dateDeleted = Db::prepareDateForDb(new DateTime());
 
         if (!$record->save()) {
             return false;
         }
 
+        $wasServing = $test->isServingWinner();
         $test->dateDeleted = self::dbDate($record->dateDeleted);
+
+        // Cached pages showing its winner go back to the original
+        if ($wasServing) {
+            ABTestCraft::getInstance()->pageCache->clearTestPages($test);
+        }
 
         Craft::info("Split test '{$test->handle}' (ID: {$test->id}) moved to trash", 'abtestcraft');
 
@@ -459,12 +484,18 @@ class TestsService extends Component
             $record->status = Test::STATUS_PAUSED;
         }
 
+        // Likewise, a test that was showing its winner comes back without
+        // showing it: another test may run on that page now, and showing it
+        // again (from the results page) checks that and clears the page cache
+        $record->serveWinner = false;
+
         if (!$record->save()) {
             return false;
         }
 
         $test->dateDeleted = null;
         $test->status = $record->status;
+        $test->serveWinner = false;
 
         Craft::info("Split test '{$test->handle}' (ID: {$test->id}) restored from trash", 'abtestcraft');
 
@@ -522,6 +553,11 @@ class TestsService extends Component
 
         $test->status = Test::STATUS_RUNNING;
         $test->startedAt = new DateTime();
+        // Starting clears a pending scheduled start, and a guardrail that
+        // paused the test watches again from here
+        $test->scheduledStartAt = null;
+        $test->guardrailTriggeredAt = null;
+        $test->guardrailMessage = null;
 
         if (!$this->saveTest($test)) {
             return 'Failed to save test.';
@@ -546,6 +582,12 @@ class TestsService extends Component
 
         $test->status = Test::STATUS_PAUSED;
 
+        // A start time that has already passed would restart the test at the
+        // next scheduled check; a future one is a planned resume and stays
+        if ($test->scheduledStartAt !== null && $test->scheduledStartAt <= new DateTime()) {
+            $test->scheduledStartAt = null;
+        }
+
         if (!$this->saveTest($test)) {
             return false;
         }
@@ -561,14 +603,20 @@ class TestsService extends Component
     /**
      * Complete a test with a winner
      */
-    public function completeTest(Test $test, ?string $winner = null): bool
+    public function completeTest(Test $test, ?string $winner = null, bool $serveWinner = false): bool
     {
         $test->status = Test::STATUS_COMPLETED;
         $test->endedAt = new DateTime();
         $test->winnerVariant = $winner;
+        // Only a winning variant can be served: a winning control already is the page
+        $test->serveWinner = $serveWinner && $winner === Test::VARIANT_VARIANT;
 
         if (!$this->saveTest($test)) {
             return false;
+        }
+
+        if ($test->serveWinner) {
+            ABTestCraft::getInstance()->pageCache->clearTestPages($test);
         }
 
         Craft::info("Split test '{$test->handle}' completed. Winner: " . ($winner ?? 'none'), 'abtestcraft');
@@ -597,6 +645,65 @@ class TestsService extends Component
     }
 
     /**
+     * Show a completed test's winning variant to everyone (or stop). Returns
+     * true, or an error message.
+     */
+    public function setServeWinner(Test $test, bool $serve): bool|string
+    {
+        if ($serve) {
+            if (!$test->isCompleted() || $test->winnerVariant !== Test::VARIANT_VARIANT) {
+                return 'Only a completed test whose variant won can show the variant to everyone.';
+            }
+            if ($overlapping = $this->getOverlappingRunningTest($test)) {
+                return $this->overlapMessage($overlapping);
+            }
+        }
+
+        if ($test->serveWinner === $serve) {
+            return true;
+        }
+
+        $test->serveWinner = $serve;
+        if (!$this->saveTest($test)) {
+            return 'Failed to save test.';
+        }
+
+        // Cached copies show the previous version
+        ABTestCraft::getInstance()->pageCache->clearTestPages($test);
+
+        Craft::info(
+            "Split test '{$test->handle}': "
+                . ($serve ? 'showing the variant to everyone' : 'stopped showing the variant'),
+            'abtestcraft'
+        );
+
+        return true;
+    }
+
+    /**
+     * The completed test whose winning variant is shown to everyone on a page
+     */
+    public function getServingTestByControlEntryId(int|string $entryId, int|string|null $siteId = null): ?Test
+    {
+        $query = TestRecord::find()
+            ->where([
+                'controlEntryId' => (int) $entryId,
+                'status' => Test::STATUS_COMPLETED,
+                'serveWinner' => true,
+                'winnerVariant' => Test::VARIANT_VARIANT,
+                'dateDeleted' => null,
+            ]);
+        if ($siteId) {
+            $query->andWhere(['siteId' => (int) $siteId]);
+        }
+
+        /** @var TestRecord|null $record */
+        $record = $query->one();
+
+        return $record ? $this->createModelFromRecord($record) : null;
+    }
+
+    /**
      * Create model from record
      */
     private function createModelFromRecord(TestRecord $record): Test
@@ -618,6 +725,14 @@ class TestsService extends Component
         $test->goalType = $record->goalType;
         $test->goalValue = $record->goalValue;
         $test->primaryGoalType = $record->primaryGoalType ?: null;
+        $test->scheduledStartAt = self::dbDate($record->scheduledStartAt);
+        $test->scheduledEndAt = self::dbDate($record->scheduledEndAt);
+        $test->serveWinner = (bool) $record->serveWinner;
+        $test->whenWinnerFound = $record->whenWinnerFound ?: Test::WINNER_NOTIFY;
+        $guardrail = is_string($record->guardrail) ? Json::decodeIfJson($record->guardrail) : $record->guardrail;
+        $test->guardrail = is_array($guardrail) ? $guardrail : null;
+        $test->guardrailTriggeredAt = self::dbDate($record->guardrailTriggeredAt);
+        $test->guardrailMessage = $record->guardrailMessage;
         $test->startedAt = self::dbDate($record->startedAt);
         $test->endedAt = self::dbDate($record->endedAt);
         $test->winnerVariant = $record->winnerVariant;

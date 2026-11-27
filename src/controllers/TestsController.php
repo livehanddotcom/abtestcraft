@@ -6,7 +6,10 @@ namespace livehand\abtestcraft\controllers;
 
 use Craft;
 use craft\elements\Entry;
+use craft\helpers\Cp;
+use craft\helpers\DateTimeHelper;
 use craft\helpers\UrlHelper;
+use craft\models\Site;
 use craft\web\Controller;
 use livehand\abtestcraft\models\Test;
 use livehand\abtestcraft\ABTestCraft;
@@ -28,7 +31,8 @@ class TestsController extends Controller
         $this->requirePermission('abtestcraft:viewResults');
 
         $request = Craft::$app->getRequest();
-        $siteId = Craft::$app->getSites()->getCurrentSite()->id;
+        $site = $this->getSelectedSite();
+        $siteId = $site->id;
 
         // Get status filter from query param, default to 'active'
         $statusFilter = $request->getQueryParam('status', 'active');
@@ -59,7 +63,8 @@ class TestsController extends Controller
             ];
         }
 
-        return $this->renderTemplate('abtestcraft/tests/index', [
+        return $this->renderTemplate('abtestcraft/tests/_index', [
+            'site' => $site,
             'tests' => $testsWithStats,
             'statusFilter' => $statusFilter,
             'counts' => $counts,
@@ -91,7 +96,7 @@ class TestsController extends Controller
 
         if ($test === null) {
             $test = new Test();
-            $test->siteId = Craft::$app->getSites()->getCurrentSite()->id;
+            $test->siteId = $this->getSelectedSite()->id;
         }
 
         return $this->renderTemplate('abtestcraft/tests/_form', [
@@ -169,7 +174,7 @@ class TestsController extends Controller
         $stats = ABTestCraft::getInstance()->stats->getTestStats($test);
         $timeEstimate = $stats['timeEstimate'];
 
-        return $this->renderTemplate('abtestcraft/tests/results', [
+        return $this->renderTemplate('abtestcraft/tests/_results', [
             'test' => $test,
             'stats' => $stats,
             'timeEstimate' => $timeEstimate,
@@ -198,9 +203,13 @@ class TestsController extends Controller
             }
 
             $test = new Test();
-            // Only new tests take the current CP site. Re-saving an existing
+            // Only new tests take a site: the one the form was opened for (or
+            // the site selected in the control panel). Re-saving an existing
             // test with the site switcher on another site mustn't move it.
-            $test->siteId = Craft::$app->getSites()->getCurrentSite()->id;
+            $postedSiteId = (int) $request->getBodyParam('siteId');
+            $test->siteId = in_array($postedSiteId, Craft::$app->getSites()->getEditableSiteIds(), true)
+                ? $postedSiteId
+                : $this->getSelectedSite()->id;
         }
 
         $test->name = $request->getBodyParam('name');
@@ -233,6 +242,28 @@ class TestsController extends Controller
         $test->primaryGoalType = $primaryGoalType !== '' ? $primaryGoalType : null;
         $primaryGoalDisabled = $test->primaryGoalType !== null
             && empty($goalsData[$test->primaryGoalType]['isEnabled']);
+
+        // Schedule (date/time fields post in the editor's timezone). A running
+        // test has already started; a start time left on it would restart it
+        // if it were paused later.
+        $test->scheduledStartAt = $test->isRunning()
+            ? null
+            : (DateTimeHelper::toDateTime($request->getBodyParam('scheduledStartAt')) ?: null);
+        $test->scheduledEndAt = DateTimeHelper::toDateTime($request->getBodyParam('scheduledEndAt')) ?: null;
+
+        $test->whenWinnerFound = (string) $request->getBodyParam('whenWinnerFound', Test::WINNER_NOTIFY);
+
+        // Safety guardrail
+        $guardrail = (array) $request->getBodyParam('guardrail', []);
+        $test->guardrail = [
+            'enabled' => !empty($guardrail['enabled']),
+            'drop' => (int) ($guardrail['drop'] ?? Test::GUARDRAIL_DEFAULTS['drop']),
+            'goalType' => ($guardrail['goalType'] ?? '') !== '' ? (string) $guardrail['goalType'] : null,
+            'confidence' => (float) ($guardrail['confidence'] ?? Test::GUARDRAIL_DEFAULTS['confidence']),
+            'minVisitors' => (int) ($guardrail['minVisitors'] ?? Test::GUARDRAIL_DEFAULTS['minVisitors']),
+            'minConversions' => (int) ($guardrail['minConversions'] ?? Test::GUARDRAIL_DEFAULTS['minConversions']),
+            'action' => (string) ($guardrail['action'] ?? Test::GUARDRAIL_DEFAULTS['action']),
+        ];
 
         if ($primaryGoalDisabled || !ABTestCraft::getInstance()->tests->saveTest($test)) {
             if ($primaryGoalDisabled) {
@@ -352,6 +383,17 @@ class TestsController extends Controller
         );
 
         return $this->redirect(UrlHelper::cpUrl('abtestcraft/tests', ['status' => 'trashed']));
+    }
+
+    /**
+     * The site selected in the control panel (the site switcher's `site`
+     * param), or the primary site. Sites::getCurrentSite() is always the
+     * primary site in the control panel, so tests on other sites couldn't be
+     * listed or created.
+     */
+    private function getSelectedSite(): Site
+    {
+        return Cp::requestedSite() ?? Craft::$app->getSites()->getPrimarySite();
     }
 
     /**
@@ -509,6 +551,7 @@ class TestsController extends Controller
         $test = $this->getPostedTest(true);
         // The stored status, not isRunning(): that's always false in the trash
         $wasRunning = $test->status === Test::STATUS_RUNNING;
+        $wasServing = $test->status === Test::STATUS_COMPLETED && $test->serveWinner;
 
         if (!ABTestCraft::getInstance()->tests->restoreTest($test)) {
             return $this->asFailure(Craft::t('abtestcraft', 'Could not restore test.'));
@@ -516,9 +559,14 @@ class TestsController extends Controller
 
         $this->clearTestCounts($test);
 
-        return $this->asSuccess($wasRunning
-            ? Craft::t('abtestcraft', 'Test restored and paused. Start it again when you’re ready.')
-            : Craft::t('abtestcraft', 'Test restored.'));
+        return $this->asSuccess(match (true) {
+            $wasRunning => Craft::t('abtestcraft', 'Test restored and paused. Start it again when you’re ready.'),
+            $wasServing => Craft::t(
+                'abtestcraft',
+                'Test restored. Its winner isn’t shown to everyone any more; show it again from its results page.'
+            ),
+            default => Craft::t('abtestcraft', 'Test restored.'),
+        });
     }
 
     /**
@@ -613,15 +661,45 @@ class TestsController extends Controller
         $this->requirePermission('abtestcraft:manageTests');
 
         $test = $this->getPostedTest();
-        $winner = Craft::$app->getRequest()->getBodyParam('winner');
+        $winner = Craft::$app->getRequest()->getBodyParam('winner') ?: null;
+        $serveWinner = (bool) Craft::$app->getRequest()->getBodyParam('serveWinner');
 
-        if (!ABTestCraft::getInstance()->tests->completeTest($test, $winner)) {
+        if (!in_array($winner, [null, Test::VARIANT_CONTROL, Test::VARIANT_VARIANT], true)) {
+            throw new BadRequestHttpException('Invalid winner.');
+        }
+
+        if (!ABTestCraft::getInstance()->tests->completeTest($test, $winner, $serveWinner)) {
             Craft::$app->getSession()->setError('Could not complete test.');
             return $this->redirectToPostedUrl($test);
         }
 
         $this->clearTestCounts($test);
-        Craft::$app->getSession()->setNotice('Test completed.');
+        Craft::$app->getSession()->setNotice(
+            $test->isServingWinner() ? 'Test completed. The variant is now shown to everyone.' : 'Test completed.'
+        );
+        return $this->redirectToPostedUrl($test);
+    }
+
+    /**
+     * Show a completed test's winning variant to everyone, or stop
+     */
+    public function actionServeWinner(): Response
+    {
+        $this->requirePostRequest();
+        $this->requirePermission('abtestcraft:manageTests');
+
+        $test = $this->getPostedTest();
+        $serve = (bool) Craft::$app->getRequest()->getBodyParam('serve');
+
+        $result = ABTestCraft::getInstance()->tests->setServeWinner($test, $serve);
+        if ($result !== true) {
+            Craft::$app->getSession()->setError($result);
+            return $this->redirectToPostedUrl($test);
+        }
+
+        Craft::$app->getSession()->setNotice(
+            $serve ? 'The variant is now shown to everyone.' : 'Everyone now sees the original page again.'
+        );
         return $this->redirectToPostedUrl($test);
     }
 }

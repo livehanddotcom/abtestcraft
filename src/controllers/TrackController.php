@@ -74,8 +74,9 @@ class TrackController extends Controller
 
         Craft::debug("Conversion request: test={$testHandle}, type={$conversionType}", 'abtestcraft');
 
-        // Bots and control panel users aren't counted (see VisitorFilterService)
+        // Bots, control panel users and visitors without consent aren't counted
         if (ABTestCraft::getInstance()->visitorFilter->shouldExcludeRequest()) {
+            ABTestCraft::getInstance()->consent->removeCookiesWithoutConsent();
             return $this->asJson(['success' => false]);
         }
 
@@ -127,6 +128,9 @@ class TrackController extends Controller
         // Never create a visitor ID here: only assigned visitors can convert
         $visitorId = ABTestCraft::getInstance()->assignment->getVisitorId();
         if ($visitorId === null || ABTestCraft::getInstance()->visitorFilter->shouldExcludeRequest()) {
+            // A visitor who withdrew consent loses their cookies here: the
+            // page script still calls in while the marker cookie exists
+            ABTestCraft::getInstance()->consent->removeCookiesWithoutConsent();
             return $this->asJson(['success' => false]);
         }
 

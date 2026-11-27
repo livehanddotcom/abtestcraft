@@ -59,6 +59,48 @@ class Settings extends Model
      */
     public int $minimumTestDays = 7;
 
+    /** @var bool Send a weekly summary of running tests (off until switched on) */
+    public bool $sendWeeklySummary = false;
+
+    /**
+     * @var bool Only include visitors who've given consent. Without consent
+     * they see the control, get no cookies and aren't counted.
+     */
+    public bool $requireConsent = false;
+
+    /**
+     * @var string Google Consent Mode signal that means consent, or '' not to
+     * use Consent Mode
+     */
+    public string $consentModeSignal = 'analytics_storage';
+
+    /**
+     * @var string Consent banner cookie to check: 'auto' (any known banner),
+     * a preset (cookiebot, cookieyes, complianz, onetrust), 'custom' or 'none'
+     */
+    public string $consentCookie = 'auto';
+
+    /** @var string OneTrust group ID for performance/analytics cookies (C0002 by default; varies per account) */
+    public string $consentOneTrustGroup = 'C0002';
+
+    /** @var string Custom consent cookie name */
+    public string $consentCookieName = '';
+
+    /** @var string Text the custom consent cookie's value must contain (empty: the cookie existing is enough) */
+    public string $consentCookieValue = '';
+
+    public const CONSENT_SIGNALS = ['analytics_storage', 'personalization_storage', 'functionality_storage', ''];
+    public const CONSENT_COOKIES = [
+        'auto',
+        'cookiebot',
+        'cookieyes',
+        'complianz',
+        'onetrust',
+        'cookieconsent',
+        'custom',
+        'none',
+    ];
+
     /**
      * Conversion counting mode:
      * - 'first_only': Count only the first conversion (any goal type) per visitor
@@ -90,8 +132,30 @@ class Settings extends Model
                     'enableDataLayer',
                     'excludeBots',
                     'excludeControlPanelUsers',
+                    'sendWeeklySummary',
+                    'requireConsent',
                 ],
                 'boolean',
+            ],
+            [['consentModeSignal'], 'in', 'range' => self::CONSENT_SIGNALS],
+            [['consentCookie'], 'in', 'range' => self::CONSENT_COOKIES],
+            [['consentCookieName', 'consentCookieValue'], 'string', 'max' => 255],
+            [
+                ['consentOneTrustGroup'],
+                'match',
+                'pattern' => '/^[A-Za-z0-9_]{1,20}$/',
+                'message' => 'Use the group ID exactly as OneTrust shows it, such as C0002.',
+            ],
+            [
+                ['consentCookieName'],
+                'match',
+                'pattern' => '/^[A-Za-z0-9_.\-]*$/',
+                'message' => 'Use the cookie\'s exact name.',
+            ],
+            [
+                ['consentCookieName'],
+                'required',
+                'when' => fn(self $model) => $model->requireConsent && $model->consentCookie === 'custom',
             ],
             [['notificationEmails'], 'string'],
             [['notificationEmails'], 'validateEmailList'],
