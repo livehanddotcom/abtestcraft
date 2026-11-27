@@ -1,7 +1,10 @@
 {% extends "_layouts/cp" %}
 
-{% set title = isNew ? "New Test" : "Edit Test" %}
+{% set title = isNew ? "New Test" : test.name %}
 {% set selectedSubnavItem = "tests" %}
+{% set crumbs = [
+    { label: 'Split Tests'|t('abtestcraft'), url: url('abtestcraft/tests') },
+] %}
 
 {% set fullPageForm = true %}
 
@@ -762,13 +765,13 @@ ABTestCraft.trackConversion('your-event-name');</code>
                 <div class="value">
                     {% switch test.status %}
                         {% case 'draft' %}
-                            <span class="status"></span> Draft
+                            <span class="status disabled"></span> Draft
                         {% case 'running' %}
                             <span class="status live"></span> Running
                         {% case 'paused' %}
-                            <span class="status"></span> Paused
+                            <span class="status orange"></span> Paused
                         {% case 'completed' %}
-                            <span class="status off"></span> Completed
+                            <span class="status blue"></span> Completed
                     {% endswitch %}
                 </div>
             </div>
@@ -792,33 +795,33 @@ ABTestCraft.trackConversion('your-event-name');</code>
     {% if not isNew %}
         <hr>
 
-        <div class="meta">
+        <div class="meta" style="display: flex; flex-wrap: wrap; gap: 8px; padding: 14px var(--m, 18px);">
             {% if test.canStart %}
                 {% set hasEnabledGoals = test.hasEnabledGoals() %}
 
                 {% if not hasEnabledGoals %}
-                    <div style="padding: 8px 12px; background: #fff3cd; border-radius: 4px; color: #856404; margin-bottom: 12px; font-size: 13px;">
+                    <div style="flex-basis: 100%; padding: 8px 12px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 6px; color: #9a3412; font-size: 13px;">
                         Enable at least one conversion goal to start the test.
                     </div>
                 {% endif %}
 
                 {# Use a link styled as button to avoid nested form issues #}
-                <a href="#" class="btn submit start-test-btn" data-test-id="{{ test.id }}" {{ not hasEnabledGoals ? 'style="pointer-events: none; opacity: 0.5;"' : '' }}>Start Test</a>
+                <a href="#" class="btn submit start-test-btn" data-test-id="{{ test.id }}" {{ not hasEnabledGoals ? 'style="pointer-events: none; opacity: 0.5;"' : '' }}>Start test</a>
             {% endif %}
 
             {% if test.canPause %}
                 {# Use a link styled as button to avoid nested form issues #}
-                <a href="#" class="btn pause-test-btn" data-test-id="{{ test.id }}">Pause Test</a>
+                <a href="#" class="btn pause-test-btn" data-test-id="{{ test.id }}">Pause test</a>
             {% endif %}
 
             {% if test.isRunning %}
-                <a href="{{ url('abtestcraft/tests/' ~ test.id ~ '/results') }}" class="btn">View Results</a>
+                <a href="{{ url('abtestcraft/tests/' ~ test.id ~ '/results') }}" class="btn">View results</a>
             {% endif %}
         </div>
 
         <hr>
 
-        <div class="meta">
+        <div class="meta" style="padding: 14px var(--m, 18px);">
             {# A link styled as a button, like Start/Pause, to avoid nesting a form in the page form #}
             <a href="#" class="error delete-test-btn" data-test-id="{{ test.id }}"
                data-confirm="{{ (test.isRunning

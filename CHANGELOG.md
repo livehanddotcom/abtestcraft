@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - Unreleased
+
+### Changed
+- Redesigned the results page. It opens with a plain-language verdict ("The variant converts 23.45% better", "Too early to call", "Paused by the safety guardrail"), a confidence meter marking the threshold, and each version's conversion rate drawn with its 95% range on one scale, so you can see how far apart they are.
+- The results page's five colored end-test buttons are now a single "End test" menu, plus one highlighted button for the recommended step once a winner can be called.
+- Charts use a calmer palette (the original in slate, the variant in indigo), with fewer, horizontal date labels. Green and red are kept for outcomes.
+- Visitor counts throughout the results page and Tests list now have thousands separators.
+- The Tests list shows each test's status with a colored dot, rates as "406 of 3,412", and the difference in gray until it's significant.
+- The test edit page shows the test's name as its title, and its sidebar buttons no longer sit in a gray strip.
+
 ## [1.3.0] - 2026-11-26
 
 ### Added

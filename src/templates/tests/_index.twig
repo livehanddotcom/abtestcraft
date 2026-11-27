@@ -22,36 +22,51 @@
 {% block content %}
     {# License notices come from the CP alert registered in ABTestCraft::registerLicenseAlert() #}
 
-    {# Tab Navigation #}
-    <div class="pane" style="margin-bottom: 24px; padding: 0;">
-        <nav style="display: flex; border-bottom: none;">
-            <a href="{{ url('abtestcraft/tests', { status: 'active', site: site.handle }) }}"
-               class="tab{% if statusFilter == 'active' %} sel{% endif %}"
-               style="padding: 12px 20px; text-decoration: none; color: {% if statusFilter == 'active' %}#0d78f2{% else %}#3f4d5a{% endif %}; border-bottom: 2px solid {% if statusFilter == 'active' %}#0d78f2{% else %}transparent{% endif %}; font-weight: {% if statusFilter == 'active' %}600{% else %}normal{% endif %};">
-                Active
-                <span style="margin-left: 6px; padding: 2px 8px; background: {% if statusFilter == 'active' %}#e3f2fd{% else %}#e9ecef{% endif %}; border-radius: 10px; font-size: 12px;">{{ counts.active }}</span>
-            </a>
-            <a href="{{ url('abtestcraft/tests', { status: 'completed', site: site.handle }) }}"
-               class="tab{% if statusFilter == 'completed' %} sel{% endif %}"
-               style="padding: 12px 20px; text-decoration: none; color: {% if statusFilter == 'completed' %}#0d78f2{% else %}#3f4d5a{% endif %}; border-bottom: 2px solid {% if statusFilter == 'completed' %}#0d78f2{% else %}transparent{% endif %}; font-weight: {% if statusFilter == 'completed' %}600{% else %}normal{% endif %};">
-                Completed
-                <span style="margin-left: 6px; padding: 2px 8px; background: {% if statusFilter == 'completed' %}#e3f2fd{% else %}#e9ecef{% endif %}; border-radius: 10px; font-size: 12px;">{{ counts.completed }}</span>
-            </a>
-            <a href="{{ url('abtestcraft/tests', { status: 'all', site: site.handle }) }}"
-               class="tab{% if statusFilter == 'all' %} sel{% endif %}"
-               style="padding: 12px 20px; text-decoration: none; color: {% if statusFilter == 'all' %}#0d78f2{% else %}#3f4d5a{% endif %}; border-bottom: 2px solid {% if statusFilter == 'all' %}#0d78f2{% else %}transparent{% endif %}; font-weight: {% if statusFilter == 'all' %}600{% else %}normal{% endif %};">
-                All
-                <span style="margin-left: 6px; padding: 2px 8px; background: {% if statusFilter == 'all' %}#e3f2fd{% else %}#e9ecef{% endif %}; border-radius: 10px; font-size: 12px;">{{ counts.all }}</span>
-            </a>
-            <a href="{{ url('abtestcraft/tests', { status: 'trashed', site: site.handle }) }}"
-               class="tab{% if statusFilter == 'trashed' %} sel{% endif %}"
-               style="margin-left: auto; padding: 12px 20px; text-decoration: none; color: {% if statusFilter == 'trashed' %}#0d78f2{% else %}#3f4d5a{% endif %}; border-bottom: 2px solid {% if statusFilter == 'trashed' %}#0d78f2{% else %}transparent{% endif %}; font-weight: {% if statusFilter == 'trashed' %}600{% else %}normal{% endif %};">
-                Trash
-                <span style="margin-left: 6px; padding: 2px 8px; background: {% if statusFilter == 'trashed' %}#e3f2fd{% else %}#e9ecef{% endif %}; border-radius: 10px; font-size: 12px;">{{ counts.trashed }}</span>
-            </a>
-        </nav>
-    </div>
+    <style>
+        .abtc-index { font-variant-numeric: tabular-nums; }
+        .abtc-tabs { display: flex; gap: 4px; margin: -4px 0 20px; border-bottom: 1px solid #e2e8f0; }
+        .abtc-tabs a {
+            display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px; margin-bottom: -1px;
+            color: #475569; text-decoration: none; border-bottom: 2px solid transparent;
+        }
+        .abtc-tabs a:hover { color: #1e293b; }
+        .abtc-tabs a.sel { color: #1e293b; font-weight: 600; border-bottom-color: #4f46e5; }
+        .abtc-tabs a:focus-visible { outline: 2px solid #4f46e5; outline-offset: -2px; border-radius: 4px; }
+        .abtc-tabs .abtc-count { padding: 1px 8px; border-radius: 10px; background: #f1f5f9; color: #64748b; font-size: 12px; font-weight: 500; }
+        .abtc-tabs a.sel .abtc-count { background: #e0e7ff; color: #3730a3; }
+        .abtc-tabs .abtc-trash { margin-left: auto; }
+        .abtc-index table.data td { vertical-align: middle; padding-top: 12px; padding-bottom: 12px; }
+        .abtc-index .abtc-name { font-weight: 600; }
+        .abtc-index .abtc-sub { margin-top: 2px; font-size: 12px; color: #64748b; }
+        .abtc-index .abtc-rate { font-weight: 600; color: #1e293b; }
+        .abtc-index .abtc-up { color: #15803d; font-weight: 600; }
+        .abtc-index .abtc-down { color: #b91c1c; font-weight: 600; }
+        .abtc-index .abtc-muted { color: #64748b; }
+        .abtc-index .abtc-progress { width: 96px; height: 6px; border-radius: 3px; background: #f1f5f9; overflow: hidden; }
+        .abtc-index .abtc-progress div { height: 100%; border-radius: 3px; background: #4f46e5; }
+        .abtc-index .abtc-progress.is-done div { background: #15803d; }
+        .abtc-index .abtc-state { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; color: #1e293b; }
+    </style>
 
+    {# Status tabs #}
+    {% set tabItems = [
+        { key: 'active', label: 'Active' },
+        { key: 'completed', label: 'Completed' },
+        { key: 'all', label: 'All' },
+        { key: 'trashed', label: 'Trash' },
+    ] %}
+    <nav class="abtc-tabs" aria-label="Filter tests by status">
+        {% for tab in tabItems %}
+            <a href="{{ url('abtestcraft/tests', { status: tab.key, site: site.handle }) }}"
+               class="{{ statusFilter == tab.key ? 'sel' }} {{ tab.key == 'trashed' ? 'abtc-trash' }}"
+               {% if statusFilter == tab.key %}aria-current="page"{% endif %}>
+                {{ tab.label }}
+                <span class="abtc-count">{{ counts[tab.key] }}</span>
+            </a>
+        {% endfor %}
+    </nav>
+
+    <div class="abtc-index">
     {% if statusFilter == 'trashed' %}
         {% if tests|length %}
             <p class="light">Tests in the trash don't run and can't be edited. Restore a test to use it again, or delete it permanently to remove it and all its results.</p>
@@ -116,13 +131,13 @@
         <table class="data fullwidth">
             <thead>
                 <tr>
-                    <th>Name</th>
-                    <th>Status</th>
-                    <th>Control</th>
-                    <th>Variant</th>
-                    <th>Lift</th>
-                    <th>Progress</th>
-                    <th></th>
+                    <th scope="col">Test</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Original</th>
+                    <th scope="col">Variant</th>
+                    <th scope="col">Difference</th>
+                    <th scope="col">Progress</th>
+                    <th scope="col"><span class="visually-hidden">Actions</span></th>
                 </tr>
             </thead>
             <tbody>
@@ -130,104 +145,89 @@
                     {% set test = item.test %}
                     {% set stats = item.stats %}
                     {% set timeEstimate = item.timeEstimate %}
+                    {% set hasData = test.status != 'draft' and stats.totalVisitors > 0 %}
                     <tr>
                         <td>
-                            <a href="{{ url('abtestcraft/tests/' ~ test.id ~ '/results') }}">
-                                <strong>{{ test.name }}</strong>
-                            </a>
-                            <div class="light">{{ test.handle }}</div>
+                            <a class="abtc-name" href="{{ url('abtestcraft/tests/' ~ test.id ~ (test.status == 'draft' ? '' : '/results')) }}">{{ test.name }}</a>
+                            <div class="abtc-sub"><code>{{ test.handle }}</code></div>
                         </td>
                         <td>
-                            {% switch test.status %}
-                                {% case 'draft' %}
-                                    <span class="status"></span> Draft
-                                {% case 'running' %}
-                                    <span class="status live"></span> Running
-                                {% case 'paused' %}
-                                    <span class="status"></span> Paused
-                                    {% if test.guardrailTriggeredAt %}
-                                        <div class="light">By its safety guardrail</div>
-                                    {% endif %}
-                                {% case 'completed' %}
-                                    <span class="status off"></span> Completed
-                                    {% if test.winnerVariant %}
-                                        <div class="light">{{ test.winnerVariant|capitalize }} won</div>
-                                    {% endif %}
-                                    {% if test.isServingWinner() %}
-                                        <div class="light">Variant shown to everyone</div>
-                                    {% endif %}
-                            {% endswitch %}
-                            {% if test.status in ['draft', 'paused'] and test.scheduledStartAt %}
-                                <div class="light">Starts {{ test.scheduledStartAt|datetime('short') }}</div>
-                            {% elseif test.status == 'running' and test.scheduledEndAt %}
-                                <div class="light">Ends {{ test.scheduledEndAt|datetime('short') }}</div>
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if test.status == 'draft' %}
-                                <span class="light">—</span>
-                            {% else %}
-                                {{ stats.conversionRates.control }}%
-                                <div class="light">{{ stats.convertedVisitors.control }}/{{ stats.visitors.control }} visitors</div>
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if test.status == 'draft' %}
-                                <span class="light">—</span>
-                            {% else %}
-                                {{ stats.conversionRates.variant }}%
-                                <div class="light">{{ stats.convertedVisitors.variant }}/{{ stats.visitors.variant }} visitors</div>
-                            {% endif %}
-                        </td>
-                        {# Lift column - contextual display #}
-                        <td>
-                            {% if test.status == 'completed' %}
-                                <span style="color: {% if stats.improvement > 0 %}#27ae60{% elseif stats.improvement < 0 %}#e74c3c{% else %}#3f4d5a{% endif %}; font-weight: 600;">
-                                    {% if stats.improvement > 0 %}+{% endif %}{{ stats.improvement }}%
-                                </span>
-                            {% elseif test.status == 'running' and stats.totalVisitors > 100 %}
-                                <span style="color: #8f98a3;">
-                                    ~{% if stats.improvement > 0 %}+{% endif %}{{ stats.improvement }}%
-                                </span>
-                                <div class="light" style="font-size: 10px;">too early to call</div>
-                            {% else %}
-                                <span class="light">—</span>
-                            {% endif %}
-                        </td>
-                        {# Progress column - contextual display #}
-                        <td>
-                            {% if test.status == 'running' %}
-                                {# Progress bar #}
-                                <div style="display: flex; align-items: center; gap: 6px;">
-                                    <div style="width: 50px; height: 6px; background: #e2e8f0; border-radius: 3px; overflow: hidden;">
-                                        <div style="width: {{ min(100, stats.progressPercent|default(0)) }}%; height: 100%; background: {% if stats.isSignificant %}#27ae60{% else %}#6366f1{% endif %}; border-radius: 3px;"></div>
-                                    </div>
-                                    <span style="font-size: 11px; color: #64748b;">{{ stats.progressPercent|default(0) }}%</span>
+                            <span class="abtc-state">
+                                {%- switch test.status -%}
+                                    {%- case 'running' -%}<span class="status live" aria-hidden="true"></span>Running
+                                    {%- case 'paused' -%}<span class="status orange" aria-hidden="true"></span>Paused
+                                    {%- case 'completed' -%}<span class="status blue" aria-hidden="true"></span>Completed
+                                    {%- default -%}<span class="status disabled" aria-hidden="true"></span>Draft
+                                {%- endswitch -%}
+                            </span>
+                            {% if test.status == 'paused' and test.guardrailTriggeredAt %}
+                                <div class="abtc-sub">By its safety guardrail</div>
+                            {% elseif test.status == 'completed' %}
+                                <div class="abtc-sub">
+                                    {%- if test.isServingWinner() -%}Variant shown to everyone
+                                    {%- elseif test.winnerVariant -%}{{ test.winnerVariant == 'variant' ? 'Variant' : 'Original' }} won
+                                    {%- else -%}No winner{%- endif -%}
                                 </div>
-                                <div class="light" style="font-size: 10px; margin-top: 2px;">
-                                    {% if stats.isSignificant %}
-                                        Winner found
-                                    {% elseif stats.verdictReady %}
-                                        No difference
-                                    {% elseif timeEstimate and not timeEstimate.reached %}
-                                        ~{{ timeEstimate.daysRemaining }}d left
-                                    {% endif %}
+                            {% endif %}
+                            {% if test.status in ['draft', 'paused'] and test.scheduledStartAt %}
+                                <div class="abtc-sub">Starts {{ test.scheduledStartAt|datetime('short') }}</div>
+                            {% elseif test.status == 'running' and test.scheduledEndAt %}
+                                <div class="abtc-sub">Ends {{ test.scheduledEndAt|datetime('short') }}</div>
+                            {% endif %}
+                        </td>
+                        {% for version in ['control', 'variant'] %}
+                            <td>
+                                {% if hasData %}
+                                    <span class="abtc-rate">{{ stats.conversionRates[version] }}%</span>
+                                    <div class="abtc-sub">{{ stats.convertedVisitors[version]|number }} of {{ stats.visitors[version]|number }}</div>
+                                {% else %}
+                                    <span class="abtc-muted">&mdash;</span>
+                                {% endif %}
+                            </td>
+                        {% endfor %}
+                        <td>
+                            {% set decided = stats.isSignificant or (test.status == 'completed' and test.winnerVariant) %}
+                            {% if hasData and stats.improvement is not null %}
+                                <span class="{{ decided ? (stats.improvement > 0 ? 'abtc-up' : (stats.improvement < 0 ? 'abtc-down')) : 'abtc-muted' }}">
+                                    {{ stats.improvement > 0 ? '+' }}{{ stats.improvement }}%
+                                </span>
+                                <div class="abtc-sub">
+                                    {%- if stats.isSignificant -%}{{ (stats.confidence * 100)|number_format(1) }}% confidence
+                                    {%- elseif stats.verdictReady -%}No significant difference
+                                    {%- elseif test.status != 'completed' -%}Too early to call
+                                    {%- else -%}{{ (stats.confidence * 100)|number_format(1) }}% confidence{%- endif -%}
+                                </div>
+                            {% else %}
+                                <span class="abtc-muted">&mdash;</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if test.status in ['running', 'paused'] and hasData %}
+                                {% set progress = min(100, stats.progressPercent|default(0)) %}
+                                <div class="abtc-progress {{ stats.verdictReady ? 'is-done' }}" role="img" aria-label="{{ progress }}% of the planned sample">
+                                    <div style="width: {{ max(progress, 3) }}%;"></div>
+                                </div>
+                                <div class="abtc-sub">
+                                    {%- if stats.isSignificant -%}Winner found
+                                    {%- elseif stats.verdictReady -%}Sample reached
+                                    {%- elseif test.status == 'running' and timeEstimate and not timeEstimate.reached -%}About {{ timeEstimate.daysRemaining }} days left
+                                    {%- else -%}{{ progress }}% of sample{%- endif -%}
                                 </div>
                             {% elseif test.status == 'completed' %}
                                 {% set duration = test.getDurationDays() %}
                                 {% if duration %}
-                                    <div>{{ duration }} day{% if duration != 1 %}s{% endif %}</div>
+                                    <span>{{ duration }} day{{ duration != 1 ? 's' }}</span>
+                                    <div class="abtc-sub">{{ stats.totalVisitors|number }} visitors</div>
                                 {% endif %}
-                                <div class="light" style="font-size: 10px;">{{ (stats.confidence * 100)|number_format(1) }}% conf.</div>
                             {% else %}
-                                <span class="light">—</span>
+                                <span class="abtc-muted">&mdash;</span>
                             {% endif %}
                         </td>
                         <td class="thin" style="white-space: nowrap;">
                             {% if test.status != 'draft' %}
                                 <a href="{{ url('abtestcraft/tests/' ~ test.id ~ '/results') }}" class="btn small">Results</a>
                             {% endif %}
-                            <a href="{{ url('abtestcraft/tests/' ~ test.id) }}" class="btn small{% if test.status == 'draft' %} submit{% endif %}">Settings</a>
+                            <a href="{{ url('abtestcraft/tests/' ~ test.id) }}" class="btn small">Edit</a>
                         </td>
                     </tr>
                 {% endfor %}
@@ -260,4 +260,5 @@
             {% endif %}
         </div>
     {% endif %}
+    </div>
 {% endblock %}

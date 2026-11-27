@@ -1,745 +1,767 @@
 {% extends "_layouts/cp" %}
 
-{% set title = test.name ~ " - Results" %}
+{% set title = test.name %}
 {% set selectedSubnavItem = "tests" %}
+{% set crumbs = [
+    { label: 'Split Tests'|t('abtestcraft'), url: url('abtestcraft/tests') },
+] %}
 
 {% block actionButton %}
-    <a href="{{ url('abtestcraft/tests/' ~ test.id) }}" class="btn">Edit Test</a>
+    <a href="{{ url('abtestcraft/tests/' ~ test.id) }}" class="btn">Edit test</a>
 {% endblock %}
 
+{# Label for a goal type #}
+{% macro goalLabel(type) %}
+    {%- switch type -%}
+        {%- case 'form' -%}Form submissions
+        {%- case 'phone' -%}Phone clicks
+        {%- case 'email' -%}Email clicks
+        {%- case 'download' -%}File downloads
+        {%- case 'page' -%}Page visits
+        {%- case 'custom' -%}Custom event
+        {%- default -%}{{ type|capitalize }}
+    {%- endswitch -%}
+{% endmacro %}
+
 {% block content %}
-    {# Custom Styles #}
+    {% set canManage = currentUser.can('abtestcraft:manageTests') %}
+    {% set goalName = test.primaryGoalType ? _self.goalLabel(test.primaryGoalType)|trim|lower : 'any goal' %}
+    {% set lift = stats.improvement ?? 0 %}
+    {% set liftDecided = stats.isSignificant or (test.isCompleted and test.winnerVariant) %}
+    {% set daysRunning = test.startedAt ? max(1, stats.daysRunning) : 0 %}
+    {% set ci = stats.confidenceIntervals %}
+    {% set confidencePct = (stats.confidence * 100)|number_format(1) %}
+    {% set thresholdPct = (stats.threshold * 100)|number_format(0) %}
+
+    {# Outcome drives the verdict's accent: win, loss, no difference, waiting or idle #}
+    {% if test.isCompleted %}
+        {% set tone = test.winnerVariant ? 'win' : 'neutral' %}
+    {% elseif test.status == 'paused' and test.guardrailTriggeredAt %}
+        {% set tone = 'loss' %}
+    {% elseif stats.totalVisitors == 0 %}
+        {% set tone = 'idle' %}
+    {% elseif stats.isSignificant %}
+        {% set tone = stats.winner == 'variant' ? 'win' : 'loss' %}
+    {% elseif stats.verdictReady %}
+        {% set tone = 'neutral' %}
+    {% else %}
+        {% set tone = 'waiting' %}
+    {% endif %}
+
     <style>
-        .abtestcraft-results {
-            --st-green: #22c55e;
-            --st-red: #ef4444;
-            --st-blue: #6366f1;
-            --st-gray: #64748b;
+        #content.content-pane { background: transparent; box-shadow: none; padding: 0; border: 0; }
+        .abtc {
+            --abtc-control: #64748b;
+            --abtc-control-soft: #e2e8f0;
+            --abtc-variant: #4f46e5;
+            --abtc-variant-soft: #e0e7ff;
+            --abtc-win: #15803d;
+            --abtc-loss: #b91c1c;
+            --abtc-wait: #b45309;
+            --abtc-ink: #1e293b;
+            --abtc-muted: #64748b;
+            --abtc-line: #e2e8f0;
+            font-variant-numeric: tabular-nums;
         }
-        .st-summary-card {
-            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 20px 24px;
-            margin-bottom: 24px;
-        }
-        .st-summary-card p {
-            margin: 0;
-            font-size: 15px;
-            line-height: 1.6;
-            color: #475569;
-        }
-        .st-stat-card {
+        .abtc .light { color: var(--abtc-muted); }
+        .abtc-panel {
             background: #fff;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 20px;
-            height: 100%;
+            border: 1px solid var(--abtc-line);
+            border-radius: 10px;
+            margin-bottom: 20px;
         }
-        .st-stat-card h3 {
-            margin: 0 0 16px;
-            font-size: 14px;
-            font-weight: 600;
-            color: #64748b;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+        .abtc-panel-body { padding: 20px 24px; }
+        .abtc-panel h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; color: var(--abtc-ink); }
+
+        /* Status bar */
+        .abtc-statusbar {
+            display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px;
+            padding: 14px 24px; border-bottom: 1px solid var(--abtc-line);
         }
-        .st-big-number {
-            font-size: 42px;
-            font-weight: 700;
-            line-height: 1;
-            margin-bottom: 4px;
+        .abtc-status { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; color: var(--abtc-muted); font-size: 13px; }
+        .abtc-status strong { color: var(--abtc-ink); font-size: 14px; font-weight: 600; }
+        .abtc-status .status { margin-right: 6px; }
+        .abtc-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+        .abtc-actions form { margin: 0; }
+        .abtc-menu button.menu-item { width: 100%; text-align: left; }
+        .abtc-menu .menu-item-description { display: block; font-size: 12px; color: var(--abtc-muted); margin-top: 2px; }
+
+        /* Verdict */
+        .abtc-verdict {
+            display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 32px; align-items: start;
+            padding: 24px 24px 22px 21px; border-left: 3px solid var(--abtc-tone);
         }
-        .st-big-number.positive { color: var(--st-green); }
-        .st-big-number.negative { color: var(--st-red); }
-        .st-big-number.neutral { color: #1e293b; }
-        .st-confidence-interval {
-            font-size: 13px;
-            color: #64748b;
-            margin-top: 4px;
+        .abtc-verdict[data-tone=win] { --abtc-tone: var(--abtc-win); }
+        .abtc-verdict[data-tone=loss] { --abtc-tone: var(--abtc-loss); }
+        .abtc-verdict[data-tone=waiting] { --abtc-tone: var(--abtc-wait); }
+        .abtc-verdict[data-tone=neutral], .abtc-verdict[data-tone=idle] { --abtc-tone: #94a3b8; }
+        .abtc-verdict h2 { margin: 0 0 8px; font-size: 26px; line-height: 1.25; font-weight: 650; color: var(--abtc-ink); letter-spacing: -0.01em; }
+        .abtc-verdict p { margin: 0; max-width: 62ch; font-size: 14px; line-height: 1.6; color: #475569; }
+        .abtc-verdict p + p { margin-top: 8px; }
+
+        .abtc-meter-label { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; color: var(--abtc-muted); }
+        .abtc-meter-label strong { font-size: 22px; font-weight: 650; color: var(--abtc-ink); }
+        .abtc-meter { position: relative; height: 8px; margin: 10px 0 6px; background: #f1f5f9; border-radius: 4px; }
+        .abtc-meter-fill { position: absolute; inset: 0 auto 0 0; border-radius: 4px; background: var(--abtc-tone); }
+        .abtc-meter-tick { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--abtc-ink); border-radius: 1px; }
+        .abtc-meter-note { font-size: 12px; color: var(--abtc-muted); }
+        .abtc-meter + .abtc-meter-note + .abtc-meter-label { margin-top: 18px; }
+
+        /* Head-to-head: each rate with its 95% range on one shared scale */
+        .abtc-compare { padding: 6px 24px 22px; }
+        .abtc-row {
+            display: grid; grid-template-columns: 150px 92px minmax(0, 1fr) 170px; gap: 16px; align-items: center;
+            padding: 12px 0;
         }
-        .st-stat-label {
-            font-size: 13px;
-            color: #64748b;
+        .abtc-row + .abtc-row { border-top: 1px dashed var(--abtc-line); }
+        .abtc-row-name { font-weight: 600; color: var(--abtc-ink); }
+        .abtc-row-name small { display: block; font-weight: 400; color: var(--abtc-muted); font-size: 12px; }
+        .abtc-row-rate { font-size: 24px; font-weight: 650; color: var(--abtc-ink); text-align: right; }
+        .abtc-row-meta { font-size: 13px; color: var(--abtc-muted); line-height: 1.45; }
+        .abtc-row-meta strong { color: var(--abtc-ink); font-weight: 600; }
+        .abtc-track { position: relative; height: 26px; }
+        .abtc-track-bar { position: absolute; top: 7px; height: 12px; left: 0; border-radius: 3px; background: var(--abtc-soft); }
+        .abtc-track-range { position: absolute; top: 12px; height: 2px; background: var(--abtc-hue); }
+        .abtc-track-range::before, .abtc-track-range::after { content: ''; position: absolute; top: -5px; width: 2px; height: 12px; background: var(--abtc-hue); }
+        .abtc-track-range::before { left: 0; }
+        .abtc-track-range::after { right: 0; }
+        .abtc-track-dot { position: absolute; top: 6px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: var(--abtc-hue); box-shadow: 0 0 0 3px #fff; }
+        .abtc-row[data-version=control] { --abtc-hue: var(--abtc-control); --abtc-soft: var(--abtc-control-soft); }
+        .abtc-row[data-version=variant] { --abtc-hue: var(--abtc-variant); --abtc-soft: var(--abtc-variant-soft); }
+        .abtc-axis { display: grid; grid-template-columns: 150px 92px minmax(0, 1fr) 170px; gap: 16px; font-size: 11px; color: #94a3b8; }
+        .abtc-axis-scale { position: relative; height: 16px; border-top: 1px solid var(--abtc-line); }
+        .abtc-axis-scale span { position: absolute; top: 3px; transform: translateX(-50%); }
+        .abtc-axis-scale span:first-child { transform: none; }
+        .abtc-axis-scale span:last-child { transform: translateX(-100%); }
+        .abtc-compare-note { margin: 8px 0 0; font-size: 12px; color: var(--abtc-muted); }
+        .abtc-lift-up { color: var(--abtc-win); font-weight: 600; }
+        .abtc-lift-down { color: var(--abtc-loss); font-weight: 600; }
+
+        /* Notes (guardrail, warnings) */
+        .abtc-note {
+            display: flex; gap: 12px; align-items: flex-start; padding: 12px 18px; margin-bottom: 20px;
+            border: 1px solid var(--abtc-line); border-radius: 10px; background: #f8fafc; color: #334155; font-size: 13px; line-height: 1.55;
         }
-        .st-stat-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 16px;
-            margin-top: 16px;
-            padding-top: 16px;
-            border-top: 1px solid #e2e8f0;
+        .abtc-note .status { margin-top: 4px; flex: none; }
+        .abtc-note.is-alert { background: #fef2f2; border-color: #fecaca; color: #7f1d1d; }
+
+        /* Charts */
+        .abtc-charts { display: grid; grid-template-columns: 3fr 2fr; gap: 20px; }
+        .abtc-chart { position: relative; height: 240px; margin-top: 12px; }
+        .abtc-legend { display: flex; gap: 16px; font-size: 12px; color: var(--abtc-muted); }
+        .abtc-legend span::before { content: ''; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; background: var(--abtc-key); }
+        .abtc-chart-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px; }
+
+        /* Goal table */
+        .abtc-goals { width: 100%; border-collapse: collapse; margin-top: 12px; }
+        .abtc-goals th, .abtc-goals td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #f1f5f9; }
+        .abtc-goals th { font-size: 12px; font-weight: 600; color: var(--abtc-muted); border-bottom-color: var(--abtc-line); }
+        .abtc-goals th:not(:first-child), .abtc-goals td:not(:first-child) { text-align: right; }
+        .abtc-goals tr:last-child td { border-bottom: 0; }
+        .abtc-goals .token { margin-left: 6px; font-size: 11px; }
+
+        /* Context and learnings */
+        .abtc-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .abtc-pair .abtc-panel { margin-bottom: 20px; }
+        .abtc-context dt { margin-top: 14px; font-size: 12px; font-weight: 600; color: var(--abtc-muted); }
+        .abtc-context dt:first-child { margin-top: 10px; }
+        .abtc-context dd { margin: 2px 0 0; color: #334155; white-space: pre-wrap; line-height: 1.55; }
+        .abtc-learnings textarea {
+            width: 100%; margin-top: 10px; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 6px;
+            font: inherit; font-size: 14px; line-height: 1.5; resize: vertical; background: #fff;
         }
-        .st-stat-item {
-            text-align: left;
+        .abtc-learnings textarea:focus { outline: 2px solid var(--abtc-variant); outline-offset: 1px; border-color: transparent; }
+
+        /* Details */
+        .abtc-details summary { cursor: pointer; padding: 14px 24px; font-weight: 600; color: var(--abtc-ink); }
+        .abtc-details[open] summary { border-bottom: 1px solid var(--abtc-line); }
+        .abtc-details table { margin: 0; }
+        .abtc-details .abtc-panel-body { padding-top: 8px; padding-bottom: 12px; }
+
+        @media (max-width: 1100px) {
+            .abtc-verdict { grid-template-columns: 1fr; gap: 20px; }
+            .abtc-charts, .abtc-pair { grid-template-columns: 1fr; }
         }
-        .st-stat-value {
-            font-size: 20px;
-            font-weight: 600;
-            color: #1e293b;
+        @media (max-width: 760px) {
+            .abtc-row, .abtc-axis { grid-template-columns: 1fr 80px; }
+            .abtc-track, .abtc-axis-scale { grid-column: 1 / -1; }
+            .abtc-row-meta { grid-column: 1 / -1; }
+            .abtc-axis > :not(.abtc-axis-scale) { display: none; }
+            .abtc-statusbar, .abtc-verdict, .abtc-compare, .abtc-panel-body { padding-left: 16px; padding-right: 16px; }
         }
-        .st-progress-bar {
-            background: #e2e8f0;
-            border-radius: 4px;
-            height: 8px;
-            overflow: hidden;
-            margin: 12px 0;
-        }
-        .st-progress-fill {
-            height: 100%;
-            border-radius: 4px;
-            transition: width 0.3s ease;
-        }
-        .st-progress-fill.green { background: var(--st-green); }
-        .st-progress-fill.blue { background: var(--st-blue); }
-        .st-chart-container {
-            background: #fff;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 24px;
-        }
-        .st-chart-container h3 {
-            margin: 0 0 16px;
-            font-size: 16px;
-            font-weight: 600;
-            color: #1e293b;
-        }
-        .st-chart-wrapper {
-            position: relative;
-            height: 250px;
-        }
-        .st-status-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 13px;
-            font-weight: 500;
-        }
-        .st-status-badge.significant {
-            background: #dcfce7;
-            color: #166534;
-        }
-        .st-status-badge.not-significant {
-            background: #fef9c3;
-            color: #854d0e;
-        }
-        .st-goal-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        .st-goal-table th,
-        .st-goal-table td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #e2e8f0;
-        }
-        .st-goal-table th {
-            font-weight: 600;
-            color: #64748b;
-            font-size: 13px;
-        }
-        .st-warning {
-            background: #fef2f2;
-            border: 1px solid #fecaca;
-            border-radius: 8px;
-            color: #991b1b;
-            padding: 16px 20px;
-            margin-bottom: 24px;
-            line-height: 1.5;
-        }
-        .st-guardrail {
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            color: #334155;
-            padding: 12px 20px;
-            margin-bottom: 24px;
-            line-height: 1.5;
-            font-size: 13px;
-        }
-        .st-lift-positive { color: var(--st-green); font-weight: 600; }
-        .st-lift-negative { color: var(--st-red); font-weight: 600; }
     </style>
 
-    <div class="abtestcraft-results">
-        {# Status Banner #}
-        <div class="pane" style="margin-bottom: 24px;">
-            {% if test.isCompleted %}
-                {# Enhanced Completed Test Banner #}
-                <div style="text-align: center; padding: 16px 0;">
-                    <div style="font-size: 14px; color: #8f98a3; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">
-                        Test Completed
-                    </div>
-
-                    {% if test.winnerVariant %}
-                        <div style="font-size: 32px; font-weight: bold; color: #27ae60; margin-bottom: 8px;">
-                            {{ test.winnerVariant|upper }} WINS
-                        </div>
-                        <div style="font-size: 20px; margin-bottom: 16px;">
-                            <span style="color: {% if stats.improvement > 0 %}#27ae60{% elseif stats.improvement < 0 %}#e74c3c{% else %}#3f4d5a{% endif %};">
-                                {% if stats.improvement > 0 %}+{% endif %}{{ stats.improvement }}% improvement
-                            </span>
-                            <span style="color: #8f98a3; margin-left: 12px;">
-                                {{ (stats.confidence * 100)|number_format(1) }}% confidence
-                            </span>
-                        </div>
-                    {% else %}
-                        <div style="font-size: 24px; font-weight: bold; color: #8f98a3; margin-bottom: 16px;">
-                            No Winner Declared
-                        </div>
-                    {% endif %}
-
-                    {% if test.winnerVariant == 'variant' %}
-                        <div style="margin: 0 auto 16px; max-width: 640px; padding: 12px 16px; border-radius: 6px; {{ test.isServingWinner() ? 'background: #dcfce7; color: #166534;' : 'background: #f1f5f9; color: #475569;' }}">
-                            {% if test.isServingWinner() %}
-                                <strong>The variant is shown to everyone</strong> on
-                                {% set controlUrl = test.controlEntry ? test.controlEntry.url : null %}
-                                {% if controlUrl %}<a href="{{ controlUrl }}" target="_blank">the original page</a>{% else %}the original page{% endif %}
-                                (no cookies or tracking). To make it permanent, copy the variant's content into the original entry, then stop showing it.
-                            {% else %}
-                                Everyone sees the original page. You can show the winning variant to everyone instead.
-                            {% endif %}
-                            {% if currentUser.can('abtestcraft:manageTests') %}
-                                <form method="post" style="margin: 8px 0 0;">
-                                    {{ csrfInput() }}
-                                    {{ actionInput('abtestcraft/tests/serve-winner') }}
-                                    {{ redirectInput('abtestcraft/tests/' ~ test.id ~ '/results') }}
-                                    <input type="hidden" name="testId" value="{{ test.id }}">
-                                    <input type="hidden" name="serve" value="{{ test.isServingWinner() ? '0' : '1' }}">
-                                    <button type="submit" class="btn small">{{ test.isServingWinner() ? 'Stop showing the variant' : 'Show the variant to everyone' }}</button>
-                                </form>
-                            {% endif %}
-                        </div>
-                    {% endif %}
-
-                    <div style="color: #8f98a3; font-size: 14px;">
+    <div class="abtc">
+        {# Status, verdict and head-to-head comparison #}
+        <section class="abtc-panel" aria-labelledby="abtc-verdict-title">
+            <div class="abtc-statusbar">
+                <div class="abtc-status">
+                    <strong>
+                        {%- switch test.status -%}
+                            {%- case 'running' -%}<span class="status live" aria-hidden="true"></span>Running
+                            {%- case 'paused' -%}<span class="status orange" aria-hidden="true"></span>Paused
+                            {%- case 'completed' -%}<span class="status blue" aria-hidden="true"></span>Completed
+                            {%- default -%}<span class="status disabled" aria-hidden="true"></span>Draft
+                        {%- endswitch -%}
+                    </strong>
+                    {% if test.isCompleted %}
                         {% set duration = test.getDurationDays() %}
                         {% if duration %}
-                            Ran for {{ duration }} day{% if duration != 1 %}s{% endif %}
-                            {% if test.startedAt and test.endedAt %}
-                                ({{ test.startedAt|date('M j') }} &ndash; {{ test.endedAt|date('M j, Y') }})
-                            {% endif %}
-                            &bull;
+                            <span>Ran {{ duration }} day{{ duration != 1 ? 's' }}{% if test.startedAt and test.endedAt %}, {{ test.startedAt|date('M j') }} to {{ test.endedAt|date('M j, Y') }}{% endif %}</span>
                         {% endif %}
-                        {{ stats.totalVisitors|default(stats.visitors.control + stats.visitors.variant) }} total visitors
-                    </div>
+                    {% elseif test.startedAt %}
+                        <span>Day {{ stats.daysRunning }}{% if not stats.durationReached %} of at least {{ stats.minimumDays }}{% endif %}</span>
+                    {% endif %}
+                    {% if test.scheduledStartAt and test.status in ['draft', 'paused'] %}
+                        <span>Starts {{ test.scheduledStartAt|datetime('short') }}</span>
+                    {% endif %}
+                    {% if test.scheduledEndAt and not test.isCompleted %}
+                        <span>Ends {{ test.scheduledEndAt|datetime('short') }}</span>
+                    {% endif %}
+                    {% if stats.totalVisitors > 0 %}
+                        <span>{{ stats.totalVisitors|number }} visitor{{ stats.totalVisitors != 1 ? 's' }}</span>
+                    {% endif %}
                 </div>
-            {% else %}
-                {# Running/Paused/Draft Banner #}
-                {# Wraps on narrow screens so the status text and buttons stay readable #}
-                <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px;">
-                    <div style="flex: 1 1 280px;">
-                        <h2 style="margin: 0;">
-                            {% switch test.status %}
-                                {% case 'running' %}
-                                    <span class="status live"></span> Test Running
-                                {% case 'paused' %}
-                                    <span class="status"></span> Test Paused
-                                {% default %}
-                                    <span class="status"></span> Test Draft
-                            {% endswitch %}
-                        </h2>
-                        {% if test.scheduledStartAt and test.status != 'running' %}
-                            <p class="light" style="margin: 8px 0 0;">Scheduled to start {{ test.scheduledStartAt|datetime('short') }}</p>
-                        {% endif %}
-                        {% if test.scheduledEndAt %}
-                            <p class="light" style="margin: 8px 0 0;">Scheduled to end {{ test.scheduledEndAt|datetime('short') }}</p>
-                        {% endif %}
-                        {% if timeEstimate and not timeEstimate.reached %}
-                            <p class="light" style="margin: 8px 0 0;">
-                                About {{ timeEstimate.daysRemaining }} more day{{ timeEstimate.daysRemaining != 1 ? 's' }} until a result can be called
-                                ({{ timeEstimate.currentVisitors }}/{{ timeEstimate.visitorsNeeded }} visitors,
-                                day {{ stats.daysRunning }} of at least {{ stats.minimumDays }})
-                            </p>
-                        {% endif %}
-                    </div>
-                    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px;">
+
+                {% if test.isRunning or test.status == 'paused' %}
+                    <div class="abtc-actions">
+                        {# Forms the end-test menu items submit (the menu may be moved in the DOM) #}
+                        <form method="post" id="abtc-complete-form">
+                            {{ csrfInput() }}
+                            {{ actionInput('abtestcraft/tests/complete') }}
+                            {{ redirectInput('abtestcraft/tests/' ~ test.id ~ '/results') }}
+                            <input type="hidden" name="testId" value="{{ test.id }}">
+                        </form>
+                        <form method="post" id="abtc-serve-form">
+                            {{ csrfInput() }}
+                            {{ actionInput('abtestcraft/tests/complete') }}
+                            {{ redirectInput('abtestcraft/tests/' ~ test.id ~ '/results') }}
+                            <input type="hidden" name="testId" value="{{ test.id }}">
+                            <input type="hidden" name="winner" value="variant">
+                            <input type="hidden" name="serveWinner" value="1">
+                        </form>
+
                         {% if test.isRunning %}
-                            <form method="post" style="margin: 0;">
+                            <form method="post">
                                 {{ csrfInput() }}
                                 {{ actionInput('abtestcraft/tests/pause') }}
                                 {{ redirectInput('abtestcraft/tests/' ~ test.id ~ '/results') }}
                                 <input type="hidden" name="testId" value="{{ test.id }}">
-                                <button type="submit" class="btn" style="background: #f1f5f9; border-color: #e2e8f0; color: #475569;">Pause Test</button>
+                                <button type="submit" class="btn">Pause</button>
                             </form>
-                            <span style="width: 1px; height: 24px; background: #e2e8f0;"></span>
                         {% endif %}
 
-                        {% if test.isRunning or test.status == 'paused' %}
-                            <form method="post" style="margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px;">
-                                {{ csrfInput() }}
-                                {{ actionInput('abtestcraft/tests/complete') }}
-                                {{ redirectInput('abtestcraft/tests/' ~ test.id ~ '/results') }}
-                                <input type="hidden" name="testId" value="{{ test.id }}">
-                                <button type="submit" name="winner" value="" class="btn" style="background: #fef3c7; border-color: #fcd34d; color: #92400e;">End Test (No Winner)</button>
-                                <button type="submit" name="winner" value="control" class="btn" style="background: #dbeafe; border-color: #93c5fd; color: #1e40af;">Control Wins</button>
-                                <button type="submit" name="winner" value="variant" class="btn" style="background: #dcfce7; border-color: #86efac; color: #166534;">Variant Wins</button>
-                            </form>
-                            <form method="post" style="margin: 0;">
-                                {{ csrfInput() }}
-                                {{ actionInput('abtestcraft/tests/complete') }}
-                                {{ redirectInput('abtestcraft/tests/' ~ test.id ~ '/results') }}
-                                <input type="hidden" name="testId" value="{{ test.id }}">
-                                <input type="hidden" name="winner" value="variant">
-                                <input type="hidden" name="serveWinner" value="1">
-                                <button type="submit" class="btn" style="background: #166534; border-color: #166534; color: #fff;" title="End the test and show the variant to everyone on the original page">Variant Wins, Show It to Everyone</button>
-                            </form>
+                        <button type="button" class="btn menubtn" aria-controls="abtc-end-menu" data-disclosure-trigger>End test</button>
+                        <div id="abtc-end-menu" class="menu menu--disclosure abtc-menu" data-disclosure-menu>
+                            <ul>
+                                <li>
+                                    <button type="submit" form="abtc-serve-form" class="menu-item">
+                                        Variant wins, show it to everyone
+                                        <span class="menu-item-description">Everyone sees the variant on the original page's URL</span>
+                                    </button>
+                                </li>
+                                <li>
+                                    <button type="submit" form="abtc-complete-form" name="winner" value="variant" class="menu-item">
+                                        Variant wins
+                                        <span class="menu-item-description">Record the winner and keep showing the original</span>
+                                    </button>
+                                </li>
+                                <li>
+                                    <button type="submit" form="abtc-complete-form" name="winner" value="control" class="menu-item">
+                                        Original wins
+                                    </button>
+                                </li>
+                            </ul>
+                            <hr>
+                            <ul>
+                                <li>
+                                    <button type="submit" form="abtc-complete-form" name="winner" value="" class="menu-item">
+                                        End with no winner
+                                    </button>
+                                </li>
+                            </ul>
+                        </div>
+
+                        {# The recommended next step, once a winner can be called #}
+                        {% if stats.isSignificant and stats.winner == 'variant' %}
+                            <button type="submit" form="abtc-serve-form" class="btn submit" title="End the test and show the variant to everyone on the original page">Show the variant to everyone</button>
+                        {% elseif stats.isSignificant and stats.winner == 'control' %}
+                            <button type="submit" form="abtc-complete-form" name="winner" value="control" class="btn submit">End test, original wins</button>
                         {% endif %}
                     </div>
+                {% endif %}
+            </div>
+
+            <div class="abtc-verdict" data-tone="{{ tone }}">
+                <div>
+                    {% if test.isCompleted %}
+                        {% if test.winnerVariant == 'variant' %}
+                            <h2 id="abtc-verdict-title">The variant won{% if lift > 0 %}, converting {{ lift }}% better{% endif %}</h2>
+                        {% elseif test.winnerVariant == 'control' %}
+                            <h2 id="abtc-verdict-title">The original won{% if lift < 0 %}: the variant converted {{ lift|abs }}% worse{% endif %}</h2>
+                        {% else %}
+                            <h2 id="abtc-verdict-title">Ended with no winner</h2>
+                        {% endif %}
+                        <p>
+                            {% if stats.verdictReady and not stats.isSignificant %}
+                                There was no significant difference on {{ goalName }}, so either version is a reasonable choice.
+                            {% else %}
+                                {{ confidencePct }}% confidence{% if not stats.verdictReady %} (provisional){% endif %} on {{ goalName }},
+                                from {{ stats.totalVisitors|number }} visitors.
+                            {% endif %}
+                        </p>
+                    {% elseif tone == 'loss' and not stats.isSignificant %}
+                        <h2 id="abtc-verdict-title">Paused by the safety guardrail</h2>
+                        <p>
+                            The variant converted {{ lift|abs }}% worse on {{ stats.guardrail.goalLabel|lower }}, a drop that's very unlikely to be chance.
+                            Every visitor sees the original page while the test is paused, and its data is kept.
+                        </p>
+                    {% elseif stats.totalVisitors == 0 %}
+                        <h2 id="abtc-verdict-title">No visitors yet</h2>
+                        <p>
+                            {% if test.isRunning %}
+                                Visitors are assigned a version as soon as they reach the test's page.
+                            {% elseif test.scheduledStartAt %}
+                                The test starts {{ test.scheduledStartAt|datetime('short') }}. Results appear here as visitors arrive.
+                            {% else %}
+                                Start the test, or schedule it, to begin collecting data.
+                            {% endif %}
+                        </p>
+                    {% elseif stats.isSignificant %}
+                        {% if stats.winner == 'variant' %}
+                            <h2 id="abtc-verdict-title">The variant converts {{ lift }}% better</h2>
+                        {% else %}
+                            <h2 id="abtc-verdict-title">The original converts better, by {{ lift|abs }}%</h2>
+                        {% endif %}
+                        <p>
+                            On {{ goalName }}, at {{ confidencePct }}% confidence after {{ daysRunning }} day{{ daysRunning != 1 ? 's' }}
+                            and {{ stats.totalVisitors|number }} visitors. The test has reached its planned sample, so this result is safe to act on.
+                        </p>
+                    {% elseif stats.verdictReady %}
+                        <h2 id="abtc-verdict-title">No significant difference</h2>
+                        <p>
+                            After {{ daysRunning }} day{{ daysRunning != 1 ? 's' }} and {{ stats.totalVisitors|number }} visitors, the test has reached
+                            its planned sample. Either version is a reasonable choice: the change didn't make a measurable difference to {{ goalName }}.
+                        </p>
+                    {% else %}
+                        <h2 id="abtc-verdict-title">Too early to call</h2>
+                        <p>
+                            {% if lift > 0 %}
+                                The variant is {{ lift }}% ahead on {{ goalName }} so far.
+                            {% elseif lift < 0 %}
+                                The original is ahead on {{ goalName }} so far, by {{ lift|abs }}%.
+                            {% else %}
+                                Both versions are converting about the same so far.
+                            {% endif %}
+                            Early differences often disappear, so wait until the test reaches
+                            {% if not stats.sampleReached %}its planned sample of {{ stats.sampleSizeNeeded|number }} visitors per version{% endif %}
+                            {%- if not stats.sampleReached and not stats.durationReached %} and {% endif %}
+                            {%- if not stats.durationReached %} at least {{ stats.minimumDays }} days{% endif %}.
+                        </p>
+                        {% if test.isRunning and timeEstimate and not timeEstimate.reached %}
+                            <p>That's about <strong>{{ timeEstimate.daysRemaining }} more day{{ timeEstimate.daysRemaining != 1 ? 's' }}</strong> at the current traffic.</p>
+                        {% endif %}
+                    {% endif %}
+                </div>
+
+                {% if stats.totalVisitors > 0 %}
+                    <div>
+                        <div class="abtc-meter-label">
+                            <span>Confidence{% if not stats.verdictReady %} (provisional){% endif %}</span>
+                            <strong>{{ confidencePct }}%</strong>
+                        </div>
+                        <div class="abtc-meter" role="img" aria-label="{{ confidencePct }}% confidence, threshold {{ thresholdPct }}%">
+                            <div class="abtc-meter-fill" style="width: {{ min(100, stats.confidence * 100) }}%;{% if not stats.verdictReady %} background: #cbd5e1;{% endif %}"></div>
+                            <div class="abtc-meter-tick" style="left: calc({{ stats.threshold * 100 }}% - 1px);"></div>
+                        </div>
+                        <div class="abtc-meter-note">A winner needs {{ thresholdPct }}%</div>
+
+                        {% if not stats.verdictReady %}
+                            <div class="abtc-meter-label">
+                                <span>Planned sample</span>
+                                <strong>{{ stats.progressPercent }}%</strong>
+                            </div>
+                            <div class="abtc-meter" role="img" aria-label="{{ stats.progressPercent }}% of the planned sample">
+                                <div class="abtc-meter-fill" style="width: {{ stats.progressPercent }}%; background: var(--abtc-variant);"></div>
+                            </div>
+                            <div class="abtc-meter-note">
+                                {{ min(stats.visitors.control, stats.visitors.variant)|number }} of {{ stats.sampleSizeNeeded|number }} visitors per version
+                            </div>
+                        {% endif %}
+                    </div>
+                {% endif %}
+            </div>
+
+            {% if stats.totalVisitors > 0 %}
+                {# Shared scale for both versions, a little past the highest range #}
+                {% set top = max(ci.control.upper, ci.variant.upper, stats.conversionRates.control, stats.conversionRates.variant, 1) %}
+                {% set step = [20, 10, 5, 2, 1, 0.5, 0.2]|filter(c => (top * 1.1 / c)|round(0, 'ceil') <= 5)|last ?: 20 %}
+                {% set ticks = (top * 1.1 / step)|round(0, 'ceil') %}
+                {% set axisMax = ticks * step %}
+                <div class="abtc-compare" role="table" aria-label="Conversion rate on {{ goalName }}, with 95% ranges">
+                    {% for version in ['control', 'variant'] %}
+                        {% set rate = stats.conversionRates[version] %}
+                        {% set range = ci[version] %}
+                        <div class="abtc-row" data-version="{{ version }}" role="row">
+                            <div class="abtc-row-name" role="rowheader">
+                                {{ version == 'control' ? 'Original' : 'Variant' }}
+                                <small>{{ version == 'control' ? 100 - test.trafficSplit : test.trafficSplit }}% of traffic</small>
+                            </div>
+                            <div class="abtc-row-rate" role="cell">{{ rate }}%</div>
+                            <div class="abtc-track" role="cell" aria-label="95% range {{ range.lower }}% to {{ range.upper }}%">
+                                <div class="abtc-track-bar" style="width: {{ rate / axisMax * 100 }}%;"></div>
+                                {% if range.margin > 0 %}
+                                    <div class="abtc-track-range" style="left: {{ range.lower / axisMax * 100 }}%; width: {{ (range.upper - range.lower) / axisMax * 100 }}%;"></div>
+                                {% endif %}
+                                <div class="abtc-track-dot" style="left: {{ rate / axisMax * 100 }}%;"></div>
+                            </div>
+                            <div class="abtc-row-meta" role="cell">
+                                <strong>{{ stats.convertedVisitors[version]|number }}</strong> of {{ stats.visitors[version]|number }} visitors
+                                <br>
+                                {% if version == 'variant' and lift != 0 %}
+                                    <span class="{{ liftDecided ? (lift > 0 ? 'abtc-lift-up' : 'abtc-lift-down') }}">{{ lift > 0 ? '+' }}{{ lift }}%</span> vs. original
+                                {% else %}
+                                    {{ stats.pagesPerVisitor[version] }} pages per visitor
+                                {% endif %}
+                            </div>
+                        </div>
+                    {% endfor %}
+                    <div class="abtc-axis" aria-hidden="true">
+                        <span></span><span></span>
+                        <div class="abtc-axis-scale">
+                            {% for i in 0..ticks %}
+                                <span style="left: {{ i / ticks * 100 }}%;">{{ (step * i)|round(1) }}%</span>
+                            {% endfor %}
+                        </div>
+                        <span></span>
+                    </div>
+                    <p class="abtc-compare-note">
+                        Conversion rate on {{ goalName }}: the share of each version's visitors who converted. Lines show the 95% range.
+                    </p>
                 </div>
             {% endif %}
-        </div>
+
+            {# A completed variant win can be shown to everyone #}
+            {% if test.isCompleted and test.winnerVariant == 'variant' %}
+                <div class="abtc-note" style="margin: 0 24px 22px; {{ test.isServingWinner() ? 'background: #f0fdf4; border-color: #bbf7d0; color: #14532d;' }}">
+                    <span class="status {{ test.isServingWinner() ? 'green' : 'disabled' }}" aria-hidden="true"></span>
+                    <div style="flex: 1;">
+                        {% if test.isServingWinner() %}
+                            <strong>The variant is shown to everyone</strong> on
+                            {% set controlUrl = test.controlEntry ? test.controlEntry.url : null %}
+                            {% if controlUrl %}<a href="{{ controlUrl }}" target="_blank">the original page</a>{% else %}the original page{% endif %},
+                            with no cookies or tracking. To make it permanent, copy the variant's content into the original entry, then stop showing it.
+                        {% else %}
+                            Everyone sees the original page. You can show the winning variant to everyone instead.
+                        {% endif %}
+                    </div>
+                    {% if canManage %}
+                        <form method="post" style="margin: 0; flex: none;">
+                            {{ csrfInput() }}
+                            {{ actionInput('abtestcraft/tests/serve-winner') }}
+                            {{ redirectInput('abtestcraft/tests/' ~ test.id ~ '/results') }}
+                            <input type="hidden" name="testId" value="{{ test.id }}">
+                            <input type="hidden" name="serve" value="{{ test.isServingWinner() ? '0' : '1' }}">
+                            <button type="submit" class="btn small">{{ test.isServingWinner() ? 'Stop showing the variant' : 'Show the variant to everyone' }}</button>
+                        </form>
+                    {% endif %}
+                </div>
+            {% endif %}
+        </section>
 
         {# A test can't run properly without both of its entries #}
         {% if not test.isCompleted and (not test.controlEntry or not test.variantEntry) %}
-            <div class="st-warning">
-                <strong>This test's {{ not test.controlEntry ? 'original' : 'variant' }} entry is missing</strong>
-                (it may have been deleted). {{ not test.variantEntry ? 'Nobody is being assigned to the test while it\'s missing.' : 'Its page can\'t be shown.' }}
-                Restore the entry from the trash, or choose another entry on the test's settings page.
-                Permanently deleting a test's entry also deletes the test and its results.
+            <div class="abtc-note is-alert" role="alert">
+                <span class="status red" aria-hidden="true"></span>
+                <div>
+                    <strong>This test's {{ not test.controlEntry ? 'original' : 'variant' }} entry is missing</strong>
+                    (it may have been deleted). {{ not test.variantEntry ? 'Nobody is being assigned to the test while it\'s missing.' : 'Its page can\'t be shown.' }}
+                    Restore the entry from the trash, or choose another entry on the test's settings page.
+                    Permanently deleting a test's entry also deletes the test and its results.
+                </div>
             </div>
         {% endif %}
 
         {# Safety guardrail #}
         {% set guard = stats.guardrail %}
         {% if guard.status == 'triggered' %}
-            <div class="st-warning">
-                <strong>The safety guardrail {{ test.status == 'paused' ? 'paused' : 'ended' }} this test{% if test.guardrailTriggeredAt %} on {{ test.guardrailTriggeredAt|datetime('short') }}{% endif %}.</strong>
-                {{ test.guardrailMessage }}
-                Every visitor sees the original page.
-                {% if test.status == 'paused' %}
-                    If you start the test again with the same guardrail settings, it will pause again unless the results change.
-                {% endif %}
+            <div class="abtc-note is-alert" role="alert">
+                <span class="status red" aria-hidden="true"></span>
+                <div>
+                    <strong>The safety guardrail {{ test.status == 'paused' ? 'paused' : 'ended' }} this test{% if test.guardrailTriggeredAt %} on {{ test.guardrailTriggeredAt|datetime('short') }}{% endif %}.</strong>
+                    {{ test.guardrailMessage }}
+                    Every visitor sees the original page.
+                    {% if test.status == 'paused' %}
+                        If you start the test again with the same guardrail settings, it will pause again unless the results change.
+                    {% endif %}
+                </div>
             </div>
         {% elseif guard.status != 'off' and test.status != 'completed' %}
-            <div class="st-guardrail">
-                <strong>Safety guardrail:</strong>
-                {% if guard.status == 'waiting' %}
-                    waiting for enough data before it can act
-                    ({{ min(guard.visitors.control, guard.visitors.variant) }} of {{ guard.minVisitors }} visitors per version,
-                    {{ guard.converted.control }} of {{ guard.minConversions }} conversions on the original).
-                {% else %}
-                    watching. It pauses the test if the variant converts at least {{ guard.drop }}% worse on {{ guard.goalLabel }}
-                    and the drop is very unlikely to be chance.
-                    {% if guard.observedDrop is not null %}
-                        Right now the variant is {{ guard.observedDrop > 0 ? guard.observedDrop ~ '% behind' : (guard.observedDrop|abs) ~ '% ahead' }}.
+            <div class="abtc-note">
+                <span class="status {{ guard.status == 'waiting' ? 'disabled' : 'green' }}" aria-hidden="true"></span>
+                <div>
+                    <strong>Safety guardrail {{ guard.status == 'waiting' ? 'is waiting for data' : 'is watching' }}.</strong>
+                    {% if guard.status == 'waiting' %}
+                        It can act once each version has {{ guard.minVisitors|number }} visitors and the original {{ guard.minConversions|number }} conversions
+                        (now {{ min(guard.visitors.control, guard.visitors.variant)|number }} visitors and {{ guard.converted.control|number }} conversions).
+                    {% else %}
+                        It pauses the test if the variant converts at least {{ guard.drop }}% worse on {{ guard.goalLabel }} and the drop is very unlikely to be chance.
+                        {% if guard.observedDrop is not null %}
+                            Right now the variant is {{ guard.observedDrop > 0 ? guard.observedDrop ~ '% behind' : (guard.observedDrop|abs) ~ '% ahead' }}.
+                        {% endif %}
                     {% endif %}
-                {% endif %}
-                {% if guard.typicalVisitorsNeeded %}
-                    <span class="light">At the current conversion rate, it typically can't confirm a {{ guard.drop }}% drop before about {{ guard.typicalVisitorsNeeded|number }} visitors per version.</span>
-                {% endif %}
+                    {% if guard.typicalVisitorsNeeded %}
+                        <span class="light">At the current conversion rate, it typically can't confirm a {{ guard.drop }}% drop before about {{ guard.typicalVisitorsNeeded|number }} visitors per version.</span>
+                    {% endif %}
+                </div>
             </div>
         {% endif %}
 
         {# Sample ratio mismatch: the split itself is off #}
         {% if stats.srm and stats.srm.detected %}
-            <div class="st-warning">
-                <strong>Visitors aren't split as configured.</strong>
-                {{ stats.srm.actualVariantPercent }}% of visitors are seeing the variant, but the test sends
-                {{ stats.srm.expectedVariantPercent }}% there. A gap this large is very unlikely by chance, so the
-                results may be unreliable. Common causes are a page cache serving one version, redirects that
-                only affect one version, or bot traffic. If you changed the traffic split during the test, this
-                is expected.
+            <div class="abtc-note is-alert" role="alert">
+                <span class="status red" aria-hidden="true"></span>
+                <div>
+                    <strong>Visitors aren't split as configured.</strong>
+                    {{ stats.srm.actualVariantPercent }}% of visitors are seeing the variant, but the test sends
+                    {{ stats.srm.expectedVariantPercent }}% there. A gap this large is very unlikely by chance, so the
+                    results may be unreliable. Common causes are a page cache serving one version, redirects that
+                    only affect one version, or bot traffic. If you changed the traffic split during the test, this
+                    is expected.
+                </div>
             </div>
         {% endif %}
 
-        {# Summary Card #}
-        <div class="st-summary-card">
-            <p>
-                {# Counts to the end date for completed tests, like the banner #}
-                {% set daysRunning = test.startedAt ? max(1, stats.daysRunning) : 0 %}
-                {% if stats.totalVisitors == 0 %}
-                    <strong>No visitors yet.</strong> Start driving traffic to your test page to collect data.
-                {% elseif stats.isSignificant %}
-                    After <strong>{{ daysRunning }} day{{ daysRunning != 1 ? 's' }}</strong> and <strong>{{ stats.totalVisitors }} visitors</strong>,
-                    the <strong>{{ stats.winner|capitalize }}</strong> is winning with
-                    <strong>{{ stats.improvement > 0 ? '+' }}{{ stats.improvement }}%</strong> improvement
-                    on {{ stats.primaryGoalLabel|lower }}.
-                    Results are statistically significant at <strong>{{ (stats.confidence * 100)|number_format(1) }}%</strong> confidence.
-                {% elseif stats.verdictReady %}
-                    After <strong>{{ daysRunning }} day{{ daysRunning != 1 ? 's' }}</strong> and <strong>{{ stats.totalVisitors }} visitors</strong>,
-                    the test has reached its planned sample, and there's <strong>no significant difference</strong>
-                    between the versions on {{ stats.primaryGoalLabel|lower }}.
-                    Either version is a reasonable choice: the change didn't make a measurable difference.
-                {% else %}
-                    After <strong>{{ daysRunning }} day{{ daysRunning != 1 ? 's' }}</strong> and <strong>{{ stats.totalVisitors }} visitors</strong>,
-                    {% if stats.improvement > 0 %}
-                        the Variant is ahead by <strong>+{{ stats.improvement }}%</strong>
-                    {% elseif stats.improvement < 0 %}
-                        the Control is ahead by <strong>{{ stats.improvement|abs }}%</strong>
-                    {% else %}
-                        both versions are performing similarly
-                    {% endif %}
-                    so far, but it's <strong>too early to call</strong>.
-                    Early differences often disappear, so wait until the test reaches
-                    {% if not stats.sampleReached %}its planned sample of {{ stats.sampleSizeNeeded }} visitors per version{% endif %}
-                    {% if not stats.sampleReached and not stats.durationReached %}and{% endif %}
-                    {% if not stats.durationReached %}at least {{ stats.minimumDays }} days{% endif %}.
-                    {% if timeEstimate and not timeEstimate.reached %}
-                        That's about <strong>{{ timeEstimate.daysRemaining }} more day{{ timeEstimate.daysRemaining != 1 ? 's' }}</strong> at the current traffic.
-                    {% endif %}
-                {% endif %}
-            </p>
-        </div>
-
-        {# Main Stats Grid #}
-        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; margin-bottom: 24px;">
-            {# Control Stats #}
-            <div class="st-stat-card">
-                <h3>Control (Original)</h3>
-                <div class="st-big-number neutral">
-                    {{ stats.conversionRates.control }}%
-                </div>
-                <div class="st-stat-label">Conversion rate: {{ stats.primaryGoalLabel|lower }}</div>
-                {% if stats.confidenceIntervals.control.margin > 0 %}
-                    <div class="st-confidence-interval">
-                        &plusmn;{{ stats.confidenceIntervals.control.margin }}%
-                        ({{ stats.confidenceIntervals.control.lower }}% - {{ stats.confidenceIntervals.control.upper }}%)
-                    </div>
-                {% endif %}
-
-                <div class="st-stat-grid">
-                    <div class="st-stat-item">
-                        <div class="st-stat-value">{{ stats.visitors.control }}</div>
-                        <div class="st-stat-label">Visitors</div>
-                    </div>
-                    <div class="st-stat-item">
-                        <div class="st-stat-value">{{ stats.convertedVisitors.control }}</div>
-                        <div class="st-stat-label">Converted</div>
-                    </div>
-                    <div class="st-stat-item">
-                        <div class="st-stat-value">{{ stats.pageViews.control }}</div>
-                        <div class="st-stat-label">Page Views</div>
-                    </div>
-                    <div class="st-stat-item">
-                        <div class="st-stat-value">{{ stats.pagesPerVisitor.control }}</div>
-                        <div class="st-stat-label">Pages/Visitor</div>
-                    </div>
-                </div>
-            </div>
-
-            {# Variant Stats #}
-            <div class="st-stat-card">
-                <h3>Variant (Test)</h3>
-                <div class="st-big-number {% if stats.improvement > 0 %}positive{% elseif stats.improvement < 0 %}negative{% else %}neutral{% endif %}">
-                    {{ stats.conversionRates.variant }}%
-                </div>
-                <div class="st-stat-label">Conversion rate: {{ stats.primaryGoalLabel|lower }}</div>
-                {% if stats.confidenceIntervals.variant.margin > 0 %}
-                    <div class="st-confidence-interval">
-                        &plusmn;{{ stats.confidenceIntervals.variant.margin }}%
-                        ({{ stats.confidenceIntervals.variant.lower }}% - {{ stats.confidenceIntervals.variant.upper }}%)
-                    </div>
-                {% endif %}
-
-                <div class="st-stat-grid">
-                    <div class="st-stat-item">
-                        <div class="st-stat-value">{{ stats.visitors.variant }}</div>
-                        <div class="st-stat-label">Visitors</div>
-                    </div>
-                    <div class="st-stat-item">
-                        <div class="st-stat-value">{{ stats.convertedVisitors.variant }}</div>
-                        <div class="st-stat-label">Converted</div>
-                    </div>
-                    <div class="st-stat-item">
-                        <div class="st-stat-value">{{ stats.pageViews.variant }}</div>
-                        <div class="st-stat-label">Page Views</div>
-                    </div>
-                    <div class="st-stat-item">
-                        <div class="st-stat-value">{{ stats.pagesPerVisitor.variant }}</div>
-                        <div class="st-stat-label">Pages/Visitor</div>
-                    </div>
-                </div>
-            </div>
-
-            {# Significance Panel #}
-            <div class="st-stat-card">
-                <h3>Statistical Significance</h3>
-                <div class="st-big-number {% if stats.isSignificant %}positive{% else %}neutral{% endif %}">
-                    {{ (stats.confidence * 100)|number_format(1) }}%
-                </div>
-                <div class="st-stat-label">
-                    Confidence Level{% if not stats.verdictReady %} (provisional){% endif %}
-                </div>
-
-                {# Progress bar toward the significance threshold #}
-                <div class="st-progress-bar" style="margin-top: 16px;">
-                    <div class="st-progress-fill {% if stats.isSignificant %}green{% else %}blue{% endif %}"
-                         style="width: {{ min(100, stats.confidence * 100) }}%;"></div>
-                </div>
-                <div style="display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8;">
-                    <span>0%</span>
-                    <span style="color: {% if stats.isSignificant %}var(--st-green){% else %}#64748b{% endif %};">{{ (stats.threshold * 100)|number_format(0) }}% threshold</span>
-                    <span>100%</span>
-                </div>
-
-                <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #e2e8f0;">
-                    <div class="st-stat-value" style="color: {% if stats.improvement > 0 %}var(--st-green){% elseif stats.improvement < 0 %}var(--st-red){% else %}#1e293b{% endif %};">
-                        {% if stats.improvement > 0 %}+{% endif %}{{ stats.improvement }}%
-                    </div>
-                    <div class="st-stat-label">Relative Improvement</div>
-                </div>
-
-                <div style="margin-top: 16px;">
-                    {% if stats.isSignificant %}
-                        <span class="st-status-badge significant">
-                            Statistically Significant
-                        </span>
-                    {% elseif stats.verdictReady %}
-                        <span class="st-status-badge not-significant">
-                            No Significant Difference
-                        </span>
-                    {% else %}
-                        <span class="st-status-badge not-significant">
-                            Collecting Data
-                        </span>
-                    {% endif %}
-                </div>
-
-                {% if not stats.verdictReady %}
-                    <div style="margin-top: 12px; font-size: 13px; color: #64748b;">
-                        <strong>Sample Progress:</strong> {{ stats.progressPercent }}%<br>
-                        {{ stats.visitors.control }} / {{ stats.sampleSizeNeeded }} control,
-                        {{ stats.visitors.variant }} / {{ stats.sampleSizeNeeded }} variant visitors<br>
-                        Day {{ stats.daysRunning }} of at least {{ stats.minimumDays }}
-                        {% if timeEstimate and not timeEstimate.reached %}
-                            <br>Est. {{ timeEstimate.daysRemaining }} day{{ timeEstimate.daysRemaining != 1 ? 's' }} remaining
-                        {% endif %}
-                    </div>
-                {% endif %}
-            </div>
-        </div>
-
-        {# Charts Section - Only show if we have daily data #}
+        {# Charts, once there's daily data #}
         {% if stats.dailyStats|length > 0 %}
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
-                {# Conversion Rate Trend Chart #}
-                <div class="st-chart-container">
-                    <h3>Conversion Rate Over Time (cumulative)</h3>
-                    <div class="st-chart-wrapper">
-                        <canvas id="conversionRateChart"></canvas>
+            <div class="abtc-charts">
+                <section class="abtc-panel">
+                    <div class="abtc-panel-body">
+                        <div class="abtc-chart-head">
+                            <h3>Conversion rate over time</h3>
+                            <div class="abtc-legend" aria-hidden="true">
+                                <span style="--abtc-key: var(--abtc-control);">Original</span>
+                                <span style="--abtc-key: var(--abtc-variant);">Variant</span>
+                            </div>
+                        </div>
+                        <div class="light" style="font-size: 12px;">Cumulative, on {{ goalName }}</div>
+                        <div class="abtc-chart">
+                            <canvas id="conversionRateChart" role="img" aria-label="Cumulative conversion rate per day for the original and the variant"></canvas>
+                        </div>
                     </div>
-                </div>
-
-                {# Daily Traffic Chart #}
-                <div class="st-chart-container">
-                    <h3>New Visitors per Day</h3>
-                    <div class="st-chart-wrapper">
-                        <canvas id="trafficChart"></canvas>
+                </section>
+                <section class="abtc-panel">
+                    <div class="abtc-panel-body">
+                        <div class="abtc-chart-head">
+                            <h3>New visitors per day</h3>
+                            <div class="abtc-legend" aria-hidden="true">
+                                <span style="--abtc-key: #cbd5e1;">Original</span>
+                                <span style="--abtc-key: #a5b4fc;">Variant</span>
+                            </div>
+                        </div>
+                        <div class="light" style="font-size: 12px;">{{ 100 - test.trafficSplit }}/{{ test.trafficSplit }} split</div>
+                        <div class="abtc-chart">
+                            <canvas id="trafficChart" role="img" aria-label="New visitors per day for the original and the variant"></canvas>
+                        </div>
                     </div>
-                </div>
+                </section>
             </div>
         {% endif %}
 
-        {# Per-Goal Stats #}
+        {# Per-goal results #}
         {% set goals = test.getGoals() %}
-        {% if goals|length > 0 %}
-            <div class="st-chart-container">
-                <h3>Conversion Breakdown by Goal</h3>
-                <p class="light" style="margin: -8px 0 12px;">
-                    Visitors who converted on each goal, out of all visitors to that version.
-                    The result above is judged on {{ stats.primaryGoalLabel|lower }}.
-                </p>
-                <table class="st-goal-table">
-                    <thead>
-                        <tr>
-                            <th>Goal</th>
-                            <th>Control</th>
-                            <th>Variant</th>
-                            <th>Relative Lift</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for goal in goals %}
-                            {% set goalStats = stats.goalStats[goal.goalType] ?? null %}
-                            {% set controlRate = goalStats.control.rate ?? 0 %}
-                            {% set variantRate = goalStats.variant.rate ?? 0 %}
-                            {% set lift = controlRate > 0 ? ((variantRate - controlRate) / controlRate * 100)|round(1) : null %}
+        {% if goals|length > 0 and stats.totalVisitors > 0 %}
+            <section class="abtc-panel">
+                <div class="abtc-panel-body">
+                    <h3>Results by goal</h3>
+                    <div class="light" style="font-size: 13px;">
+                        Visitors who converted on each goal, out of all visitors to that version. The result above is judged on {{ goalName }}.
+                    </div>
+                    <table class="abtc-goals">
+                        <thead>
                             <tr>
-                                <td>
-                                    {% switch goal.goalType %}
-                                        {% case 'form' %}
-                                            Form Submissions
-                                        {% case 'phone' %}
-                                            Phone Clicks
-                                        {% case 'email' %}
-                                            Email Clicks
-                                        {% case 'download' %}
-                                            File Downloads
-                                        {% case 'page' %}
-                                            Page Visits
-                                        {% case 'custom' %}
-                                            Custom Event
-                                        {% default %}
-                                            {{ goal.goalType|capitalize }}
-                                    {% endswitch %}
-                                    {% if goal.goalType == stats.primaryGoalType %}
-                                        <span class="token" style="margin-left: 4px;">Primary</span>
-                                    {% endif %}
-                                </td>
-                                <td>{{ controlRate }}% <span class="light">({{ goalStats.control.convertedVisitors ?? 0 }})</span></td>
-                                <td>{{ variantRate }}% <span class="light">({{ goalStats.variant.convertedVisitors ?? 0 }})</span></td>
-                                <td class="{% if lift is not null and lift > 0 %}st-lift-positive{% elseif lift is not null and lift < 0 %}st-lift-negative{% endif %}">
-                                    {% if lift is null %}&mdash;{% else %}{% if lift > 0 %}+{% endif %}{{ lift }}%{% endif %}
-                                </td>
+                                <th scope="col">Goal</th>
+                                <th scope="col">Original</th>
+                                <th scope="col">Variant</th>
+                                <th scope="col">Difference</th>
                             </tr>
-                        {% endfor %}
+                        </thead>
+                        <tbody>
+                            {% for goal in goals %}
+                                {% set goalStats = stats.goalStats[goal.goalType] ?? null %}
+                                {% set controlRate = goalStats.control.rate ?? 0 %}
+                                {% set variantRate = goalStats.variant.rate ?? 0 %}
+                                {% set goalLift = controlRate > 0 ? ((variantRate - controlRate) / controlRate * 100)|round(1) : null %}
+                                <tr>
+                                    <td>
+                                        {{ _self.goalLabel(goal.goalType) }}
+                                        {% if goal.goalType == stats.primaryGoalType %}
+                                            <span class="token">Primary</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ controlRate }}% <span class="light">({{ (goalStats.control.convertedVisitors ?? 0)|number }})</span></td>
+                                    <td>{{ variantRate }}% <span class="light">({{ (goalStats.variant.convertedVisitors ?? 0)|number }})</span></td>
+                                    <td class="{% if goalLift is not null and goalLift > 0 %}abtc-lift-up{% elseif goalLift is not null and goalLift < 0 %}abtc-lift-down{% endif %}">
+                                        {% if goalLift is null %}&mdash;{% else %}{% if goalLift > 0 %}+{% endif %}{{ goalLift }}%{% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        {% endif %}
+
+        {# What the test is about, and what was learned #}
+        <div class="abtc-pair">
+            <section class="abtc-panel abtc-context">
+                <div class="abtc-panel-body">
+                    <h3>About this test</h3>
+                    {% if test.hypothesis or test.variantDescription %}
+                        <dl style="margin: 0;">
+                            {% if test.hypothesis %}
+                                <dt>Hypothesis</dt>
+                                <dd>{{ test.hypothesis }}</dd>
+                            {% endif %}
+                            {% if test.variantDescription %}
+                                <dt>What the variant changes</dt>
+                                <dd>{{ test.variantDescription }}</dd>
+                            {% endif %}
+                        </dl>
+                    {% else %}
+                        <p class="light" style="margin: 8px 0 0;">
+                            No hypothesis yet. <a href="{{ url('abtestcraft/tests/' ~ test.id) }}">Add one</a> so everyone knows what this test is meant to show.
+                        </p>
+                    {% endif %}
+                </div>
+            </section>
+
+            <section class="abtc-panel abtc-learnings">
+                <div class="abtc-panel-body">
+                    <h3><label for="learnings">Learnings</label></h3>
+                    <div class="light" style="font-size: 13px;">What did this test teach you? Notes here stay with the results.</div>
+                    <form method="post" id="learnings-form">
+                        {{ csrfInput() }}
+                        {{ actionInput('abtestcraft/tests/save-learnings') }}
+                        {{ hiddenInput('testId', test.id) }}
+                        {{ redirectInput('abtestcraft/tests/' ~ test.id ~ '/results') }}
+                        <textarea name="learnings" id="learnings" rows="4"
+                            placeholder="For example: large images won on mobile most of all. Try them on the homepage next.">{{ test.learnings }}</textarea>
+                        <div style="margin-top: 10px; text-align: right;">
+                            <button type="submit" class="btn">Save learnings</button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+        </div>
+
+        {# Test details #}
+        <details class="abtc-panel abtc-details">
+            <summary>Test details</summary>
+            <div class="abtc-panel-body">
+                <table class="data fullwidth">
+                    <tbody>
+                        <tr>
+                            <th style="width: 200px;">Handle</th>
+                            <td><code>{{ test.handle }}</code></td>
+                        </tr>
+                        <tr>
+                            <th>Traffic split</th>
+                            <td>{{ 100 - test.trafficSplit }}% original, {{ test.trafficSplit }}% variant</td>
+                        </tr>
+                        <tr>
+                            <th>Original entry</th>
+                            <td>
+                                {% set controlEntry = test.controlEntry %}
+                                {% if controlEntry %}
+                                    <a href="{{ controlEntry.cpEditUrl }}">{{ controlEntry.title }}</a>
+                                    {% if controlEntry.url %}<span class="light">&nbsp;&middot;&nbsp;</span><a href="{{ controlEntry.url }}" target="_blank">View</a>{% endif %}
+                                {% else %}
+                                    <em class="light">Entry not found</em>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>Variant entry</th>
+                            <td>
+                                {% set variantEntry = test.variantEntry %}
+                                {% if variantEntry %}
+                                    <a href="{{ variantEntry.cpEditUrl }}">{{ variantEntry.title }}</a>
+                                    {% if variantEntry.url %}<span class="light">&nbsp;&middot;&nbsp;</span><a href="{{ variantEntry.url }}" target="_blank">View</a>{% endif %}
+                                {% else %}
+                                    <em class="light">Entry not found</em>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>Goals</th>
+                            <td>
+                                {% if goals|length > 0 %}
+                                    {% for goal in goals %}
+                                        <span class="token" style="margin-right: 4px;">{{ _self.goalLabel(goal.goalType) }}</span>
+                                    {% endfor %}
+                                {% else %}
+                                    <em class="light">Legacy: {{ test.goalType|capitalize }}</em>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>Primary goal</th>
+                            <td>{{ test.getPrimaryGoalLabel() }}</td>
+                        </tr>
+                        <tr>
+                            <th>Page views</th>
+                            <td>{{ stats.pageViews.control|number }} original, {{ stats.pageViews.variant|number }} variant</td>
+                        </tr>
+                        {% if test.startedAt %}
+                            <tr>
+                                <th>Started</th>
+                                <td>{{ test.startedAt|datetime('short') }}</td>
+                            </tr>
+                        {% endif %}
+                        {% if test.endedAt %}
+                            <tr>
+                                <th>Ended</th>
+                                <td>{{ test.endedAt|datetime('short') }}</td>
+                            </tr>
+                        {% endif %}
                     </tbody>
                 </table>
             </div>
-        {% endif %}
-
-        {# Test Context - shows hypothesis and variant changes #}
-        {% if test.hypothesis or test.variantDescription %}
-        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin-top: 24px;">
-            <h3 style="margin: 0 0 16px 0; font-size: 16px; color: #1e293b;">Test Context</h3>
-
-            {% if test.hypothesis %}
-            <div style="margin-bottom: 16px;">
-                <strong style="color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Hypothesis</strong>
-                <p style="margin: 4px 0 0 0; color: #334155; white-space: pre-wrap;">{{ test.hypothesis }}</p>
-            </div>
-            {% endif %}
-
-            {% if test.variantDescription %}
-            <div>
-                <strong style="color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Variant Changes</strong>
-                <p style="margin: 4px 0 0 0; color: #334155; white-space: pre-wrap;">{{ test.variantDescription }}</p>
-            </div>
-            {% endif %}
-        </div>
-        {% endif %}
-
-        {# Learnings - editable textarea with save button #}
-        <div style="background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 20px; margin-top: 24px;">
-            <h3 style="margin: 0 0 8px 0; font-size: 16px; color: #92400e;">Test Learnings</h3>
-            <p style="margin: 0 0 12px 0; color: #b45309; font-size: 13px;">
-                What did you learn from this test? Record your insights for future reference.
-            </p>
-            <form method="post" id="learnings-form">
-                {{ csrfInput() }}
-                {{ actionInput('abtestcraft/tests/save-learnings') }}
-                {{ hiddenInput('testId', test.id) }}
-                {{ redirectInput('abtestcraft/tests/' ~ test.id ~ '/results') }}
-                <textarea
-                    name="learnings"
-                    id="learnings"
-                    rows="4"
-                    style="width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 14px; resize: vertical; font-family: inherit;"
-                    placeholder="e.g., The variant with testimonials increased conversions by 23%. We should test testimonials on other landing pages..."
-                >{{ test.learnings }}</textarea>
-                <div style="margin-top: 12px; text-align: right;">
-                    <button type="submit" class="btn submit">Save Learnings</button>
-                </div>
-            </form>
-        </div>
-
-        {# Test Details (Collapsible) #}
-        <details class="pane" style="margin-top: 24px;">
-            <summary style="cursor: pointer; font-weight: 600; padding: 12px 0;">Test Details</summary>
-            <table class="data fullwidth" style="margin-top: 12px;">
-                <tbody>
-                    <tr>
-                        <th style="width: 200px;">Test Handle</th>
-                        <td><code>{{ test.handle }}</code></td>
-                    </tr>
-                    <tr>
-                        <th>Traffic Split</th>
-                        <td>{{ 100 - test.trafficSplit }}% Control / {{ test.trafficSplit }}% Variant</td>
-                    </tr>
-                    <tr>
-                        <th>Control Entry</th>
-                        <td>
-                            {% set controlEntry = test.controlEntry %}
-                            {% if controlEntry %}
-                                <a href="{{ controlEntry.cpEditUrl }}">{{ controlEntry.title }}</a>
-                                - <a href="{{ controlEntry.url }}" target="_blank">View</a>
-                            {% else %}
-                                <em class="light">Entry not found</em>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    <tr>
-                        <th>Variant Entry</th>
-                        <td>
-                            {% set variantEntry = test.variantEntry %}
-                            {% if variantEntry %}
-                                <a href="{{ variantEntry.cpEditUrl }}">{{ variantEntry.title }}</a>
-                                - <a href="{{ variantEntry.url }}" target="_blank">View</a>
-                            {% else %}
-                                <em class="light">Entry not found</em>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    <tr>
-                        <th>Conversion Goals</th>
-                        <td>
-                            {% set goals = test.getGoals() %}
-                            {% if goals|length > 0 %}
-                                {% for goal in goals %}
-                                    <span class="token" style="margin-right: 4px;">
-                                        {% switch goal.goalType %}
-                                            {% case 'form' %}Form{% case 'phone' %}Phone{% case 'email' %}Email{% case 'download' %}Download{% case 'page' %}Page Visit{% case 'custom' %}Custom{% default %}{{ goal.goalType }}{% endswitch %}
-                                    </span>
-                                {% endfor %}
-                            {% else %}
-                                <em class="light">Legacy: {{ test.goalType|capitalize }}</em>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    <tr>
-                        <th>Primary Goal</th>
-                        <td>{{ test.getPrimaryGoalLabel() }}</td>
-                    </tr>
-                    {% if test.startedAt %}
-                        <tr>
-                            <th>Started</th>
-                            <td>{{ test.startedAt|date('long') }}</td>
-                        </tr>
-                    {% endif %}
-                    {% if test.endedAt %}
-                        <tr>
-                            <th>Ended</th>
-                            <td>{{ test.endedAt|date('long') }}</td>
-                        </tr>
-                    {% endif %}
-                </tbody>
-            </table>
         </details>
 
-        {# Daily Stats Table (Collapsible) #}
+        {# Daily figures #}
         {% if stats.dailyStats|length > 1 %}
-            <details class="pane" style="margin-top: 24px;">
-                <summary style="cursor: pointer; font-weight: 600; padding: 12px 0;">Daily Performance Data</summary>
-                <table class="data fullwidth" style="margin-top: 12px;">
-                    <thead>
-                        <tr>
-                            <th>Date</th>
-                            <th>Control Visitors</th>
-                            <th>Control Converted</th>
-                            <th>Control Rate (cumulative)</th>
-                            <th>Variant Visitors</th>
-                            <th>Variant Converted</th>
-                            <th>Variant Rate (cumulative)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for day in stats.dailyStats %}
+            <details class="abtc-panel abtc-details">
+                <summary>Daily figures</summary>
+                <div class="abtc-panel-body">
+                    <table class="data fullwidth">
+                        <thead>
                             <tr>
-                                <td>{{ day.date }}</td>
-                                <td>{{ day.control.visitors }}</td>
-                                <td>{{ day.control.converted }}</td>
-                                <td>{{ day.control.rate }}%</td>
-                                <td>{{ day.variant.visitors }}</td>
-                                <td>{{ day.variant.converted }}</td>
-                                <td>{{ day.variant.rate }}%</td>
+                                <th scope="col">Date</th>
+                                <th scope="col">Original visitors</th>
+                                <th scope="col">Original converted</th>
+                                <th scope="col">Original rate (cumulative)</th>
+                                <th scope="col">Variant visitors</th>
+                                <th scope="col">Variant converted</th>
+                                <th scope="col">Variant rate (cumulative)</th>
                             </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody>
+                            {% for day in stats.dailyStats %}
+                                <tr>
+                                    <td>{{ day.date }}</td>
+                                    <td>{{ day.control.visitors|number }}</td>
+                                    <td>{{ day.control.converted|number }}</td>
+                                    <td>{{ day.control.rate }}%</td>
+                                    <td>{{ day.variant.visitors|number }}</td>
+                                    <td>{{ day.variant.converted|number }}</td>
+                                    <td>{{ day.variant.rate }}%</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
             </details>
         {% endif %}
     </div>
@@ -755,25 +777,25 @@
     {# Registered after the Chart.js bundle, so Chart is defined when this runs #}
     {% js %}
         (function() {
-            // Prepare data from Twig
             var dailyStats = {{ stats.dailyStats|json_encode|raw }};
-
             var labels = dailyStats.map(function(d) {
-                // Format date nicely
-                var date = new Date(d.date);
-                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                // Dates are plain Y-m-d strings: build them as local dates so they don't shift a day
+                var p = d.date.split('-');
+                return new Date(+p[0], +p[1] - 1, +p[2]).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
             });
+            var control = '#64748b', variant = '#4f46e5', grid = '#f1f5f9';
 
-            var controlRates = dailyStats.map(function(d) { return d.control.rate; });
-            var variantRates = dailyStats.map(function(d) { return d.variant.rate; });
-            var controlVisitors = dailyStats.map(function(d) { return d.control.visitors; });
-            var variantVisitors = dailyStats.map(function(d) { return d.variant.visitors; });
+            Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+            Chart.defaults.font.size = 11;
+            Chart.defaults.color = '#94a3b8';
 
-            // Chart defaults
-            Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-            Chart.defaults.color = '#64748b';
+            var xAxis = {
+                grid: { display: false },
+                border: { color: '#e2e8f0' },
+                ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 7 }
+            };
+            var tooltip = { backgroundColor: '#1e293b', padding: 10, cornerRadius: 6, boxPadding: 4, usePointStyle: true };
 
-            // Conversion Rate Trend Chart
             var rateCtx = document.getElementById('conversionRateChart');
             if (rateCtx) {
                 new Chart(rateCtx, {
@@ -781,63 +803,48 @@
                     data: {
                         labels: labels,
                         datasets: [{
-                            label: 'Control',
-                            data: controlRates,
-                            borderColor: '#6366f1',
-                            backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                            label: 'Original',
+                            data: dailyStats.map(function(d) { return d.control.rate; }),
+                            borderColor: control,
+                            backgroundColor: control,
                             borderWidth: 2,
                             tension: 0.3,
-                            fill: false,
-                            pointRadius: 4,
-                            pointHoverRadius: 6
+                            pointRadius: 0,
+                            pointHoverRadius: 4
                         }, {
                             label: 'Variant',
-                            data: variantRates,
-                            borderColor: '#22c55e',
-                            backgroundColor: 'rgba(34, 197, 94, 0.1)',
-                            borderWidth: 2,
+                            data: dailyStats.map(function(d) { return d.variant.rate; }),
+                            borderColor: variant,
+                            backgroundColor: variant,
+                            borderWidth: 2.5,
                             tension: 0.3,
-                            fill: false,
-                            pointRadius: 4,
-                            pointHoverRadius: 6
+                            pointRadius: 0,
+                            pointHoverRadius: 4
                         }]
                     },
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
+                        interaction: { mode: 'index', intersect: false },
                         plugins: {
-                            legend: {
-                                position: 'bottom',
-                                labels: { usePointStyle: true, padding: 20 }
-                            },
-                            tooltip: {
-                                callbacks: {
-                                    label: function(context) {
-                                        return context.dataset.label + ': ' + context.parsed.y + '%';
-                                    }
-                                }
-                            }
+                            legend: { display: false },
+                            tooltip: Object.assign({}, tooltip, {
+                                callbacks: { label: function(c) { return ' ' + c.dataset.label + ': ' + c.parsed.y + '%'; } }
+                            })
                         },
                         scales: {
                             y: {
                                 beginAtZero: true,
-                                title: {
-                                    display: true,
-                                    text: 'Conversion Rate %'
-                                },
-                                ticks: {
-                                    callback: function(value) { return value + '%'; }
-                                }
+                                grid: { color: grid },
+                                border: { display: false },
+                                ticks: { maxTicksLimit: 5, callback: function(v) { return v + '%'; } }
                             },
-                            x: {
-                                grid: { display: false }
-                            }
+                            x: xAxis
                         }
                     }
                 });
             }
 
-            // Daily Traffic Chart
             var trafficCtx = document.getElementById('trafficChart');
             if (trafficCtx) {
                 new Chart(trafficCtx, {
@@ -845,40 +852,28 @@
                     data: {
                         labels: labels,
                         datasets: [{
-                            label: 'Control',
-                            data: controlVisitors,
-                            backgroundColor: 'rgba(99, 102, 241, 0.7)',
-                            borderColor: '#6366f1',
-                            borderWidth: 1
+                            label: 'Original',
+                            data: dailyStats.map(function(d) { return d.control.visitors; }),
+                            backgroundColor: '#cbd5e1',
+                            hoverBackgroundColor: control,
+                            borderRadius: 3
                         }, {
                             label: 'Variant',
-                            data: variantVisitors,
-                            backgroundColor: 'rgba(34, 197, 94, 0.7)',
-                            borderColor: '#22c55e',
-                            borderWidth: 1
+                            data: dailyStats.map(function(d) { return d.variant.visitors; }),
+                            backgroundColor: '#a5b4fc',
+                            hoverBackgroundColor: variant,
+                            borderRadius: 3
                         }]
                     },
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
-                        plugins: {
-                            legend: {
-                                position: 'bottom',
-                                labels: { usePointStyle: true, padding: 20 }
-                            }
-                        },
+                        interaction: { mode: 'index', intersect: false },
+                        datasets: { bar: { categoryPercentage: 0.7, barPercentage: 0.9 } },
+                        plugins: { legend: { display: false }, tooltip: tooltip },
                         scales: {
-                            y: {
-                                beginAtZero: true,
-                                title: {
-                                    display: true,
-                                    text: 'New visitors'
-                                },
-                                stacked: false
-                            },
-                            x: {
-                                grid: { display: false }
-                            }
+                            y: { beginAtZero: true, grid: { color: grid }, border: { display: false }, ticks: { maxTicksLimit: 5, precision: 0 } },
+                            x: xAxis
                         }
                     }
                 });
