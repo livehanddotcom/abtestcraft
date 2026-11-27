@@ -9,15 +9,21 @@
 #   DB_DRIVER      pgsql or mysql
 #   DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
 #   CRAFT_VERSION  optional Craft version to install (e.g. 5.0.0); default is the newest
+#   UPGRADE_FROM   optional ABTestCraft release to start from (e.g. 1.0.0): installs it
+#                  from Packagist, records visitor traffic with it, upgrades to this
+#                  code and checks the data survived (tests/ci/upgrade-check.php)
+#   SITE_URL       where the site will be served; default http://127.0.0.1:8080/
 #
 # The plugin is copied to <site-dir>/local/craft-abtestcraft (where the test
-# bootstrap expects it, as in local development). Run the tests from there,
-# with the site's Codeception: ../../vendor/bin/codecept run integration
+# bootstrap expects it, as in local development). To run the tests, serve the
+# site at SITE_URL (php -S 127.0.0.1:8080 -t <site-dir>/web) and run the site's
+# Codeception from the plugin copy: ../../vendor/bin/codecept run integration
 set -euo pipefail
 
 SITE="${1:?Usage: setup-site.sh <site-dir>}"
 PLUGIN_SRC="$(cd "$(dirname "$0")/../.." && pwd)"
 : "${DB_DRIVER:?}" "${DB_HOST:?}" "${DB_PORT:?}" "${DB_NAME:?}" "${DB_USER:?}" "${DB_PASSWORD:?}"
+SITE_URL="${SITE_URL:-http://127.0.0.1:8080/}"
 
 if [ -e "$SITE" ]; then
     echo "$SITE already exists" >&2
@@ -40,23 +46,53 @@ use craft\config\GeneralConfig;
 
 return GeneralConfig::create()
     ->devMode(true)
+    ->omitScriptNameInUrls(true)
     ->aliases(['@webroot' => dirname(__DIR__) . '/web']);
 PHP
+# The template for the seeded pages (the front-end tests read the title)
+cat > templates/_page.twig <<'TWIG'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>{{ entry.title }}</title>
+    {{ head() }}
+</head>
+<body>
+    {{ beginBody() }}
+    <h1 id="page-title">{{ entry.title }}</h1>
+    <p><a href="tel:+15555550100">Call us</a></p>
+    {{ endBody() }}
+</body>
+</html>
+TWIG
 echo "::endgroup::"
 
 echo "::group::Add the plugin"
 mkdir -p local/craft-abtestcraft
 tar -C "$PLUGIN_SRC" --exclude=./vendor --exclude=./.git --exclude=./tests/_output \
     --exclude=./tests/_craft/storage --exclude=./tests/.env -cf - . | tar -C local/craft-abtestcraft -xf -
-composer config repositories.abtestcraft path local/craft-abtestcraft
-PACKAGES=("livehand/abtestcraft:*")
 if [ -n "${CRAFT_VERSION:-}" ]; then
-    PACKAGES+=("craftcms/cms:${CRAFT_VERSION}")
     # Old Craft releases have security advisories, which Composer refuses by
     # default. Fine for a throwaway test site.
     composer config audit.block-insecure false
 fi
-composer require "${PACKAGES[@]}" --with-all-dependencies --no-interaction --no-progress
+# Installs livehand/abtestcraft at $1 (this code when it's "*"), plus the Craft version asked for
+require_plugin() {
+    local packages=("livehand/abtestcraft:$1")
+    if [ -n "${CRAFT_VERSION:-}" ]; then packages+=("craftcms/cms:${CRAFT_VERSION}"); fi
+    composer require "${packages[@]}" --with-all-dependencies --no-interaction --no-progress
+}
+use_this_code() {
+    # A path repository comes before Packagist, so this code wins over the release
+    composer config repositories.abtestcraft path local/craft-abtestcraft
+    require_plugin "*"
+}
+if [ -n "${UPGRADE_FROM:-}" ]; then
+    require_plugin "$UPGRADE_FROM"
+else
+    use_this_code
+fi
 echo "::endgroup::"
 
 echo "::group::Install Craft and the plugin"
@@ -83,11 +119,21 @@ set -a
 set +a
 php craft install --interactive=0 --username=admin --email=admin@example.com \
     --password="$(php -r 'echo bin2hex(random_bytes(12));')" \
-    --site-name="ABTestCraft Tests" --site-url="http://localhost/" --language=en-US
+    --site-name="ABTestCraft Tests" --site-url="$SITE_URL" --language=en-US
 php craft plugin/install abtestcraft --interactive=0
 php local/craft-abtestcraft/tests/ci/seed.php "$SITE"
 composer show | grep -E "^(craftcms/cms|livehand/abtestcraft) "
 echo "::endgroup::"
+
+if [ -n "${UPGRADE_FROM:-}" ]; then
+    echo "::group::Upgrade from ${UPGRADE_FROM}"
+    php local/craft-abtestcraft/tests/ci/upgrade-check.php "$SITE" before
+    use_this_code
+    php craft up --interactive=0
+    php local/craft-abtestcraft/tests/ci/upgrade-check.php "$SITE" after
+    composer show | grep -E "^livehand/abtestcraft "
+    echo "::endgroup::"
+fi
 
 echo "::group::Install the test tools"
 # Into the site, not the plugin's own vendor folder: one set of libraries, so
@@ -109,8 +155,10 @@ CRAFT_DB_PASSWORD=${DB_PASSWORD}
 CRAFT_DB_SCHEMA=${DB_SCHEMA}
 CRAFT_DB_TABLE_PREFIX=
 SECURITY_KEY=${SECURITY_KEY}
-DEFAULT_SITE_URL=http://localhost/
+DEFAULT_SITE_URL=${SITE_URL}
+# A disposable site at this URL: turns on the front-end and console command tests
+ABTESTCRAFT_TEST_SITE_URL=${SITE_URL}
 ENV
 echo "::endgroup::"
 
-echo "Site ready. Run the tests from $SITE/local/craft-abtestcraft with ../../vendor/bin/codecept"
+echo "Site ready. Serve it at ${SITE_URL} and run the tests from $SITE/local/craft-abtestcraft with ../../vendor/bin/codecept"

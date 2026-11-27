@@ -62,9 +62,10 @@ jobs:
           # also require that tests actually ran
           grep -qE '^(OK \([1-9][0-9]* tests|Tests: [1-9])' unit-tests.log
 
-  # The integration tests (including the control panel page smoke test) need a
-  # Craft site with a database: tests/ci/setup-site.sh builds one from scratch.
-  # One newest-everything run on Postgres, one oldest-supported run on MySQL.
+  # The integration tests need a Craft site with a database, and the front-end
+  # tests a web server for it: tests/ci/setup-site.sh builds a site from scratch.
+  # Newest everything on Postgres, oldest supported on MySQL, and an upgrade from
+  # the first release on each database (with traffic recorded by that release).
   integration:
     name: Integration (${{ matrix.label }})
     runs-on: ubuntu-latest
@@ -83,6 +84,18 @@ jobs:
             db: mysql
             port: 3306
             craft: '5.0.0'
+          - label: Upgrade from 1.0.0, Postgres
+            php: '8.3'
+            db: pgsql
+            port: 5432
+            craft: ''
+            upgrade: '1.0.0'
+          - label: Upgrade from 1.0.0, MySQL
+            php: '8.3'
+            db: mysql
+            port: 3306
+            craft: ''
+            upgrade: '1.0.0'
 
     services:
       postgres:
@@ -134,7 +147,21 @@ jobs:
           DB_USER: craft
           DB_PASSWORD: craft
           CRAFT_VERSION: ${{ matrix.craft }}
+          UPGRADE_FROM: ${{ matrix.upgrade }}
         run: tests/ci/setup-site.sh "$RUNNER_TEMP/site"
+
+      # For the front-end tests (it keeps running for the later steps)
+      - name: Start a web server for the site
+        shell: bash
+        run: |
+          cd "$RUNNER_TEMP/site"
+          php -d opcache.enable_cli=0 -S 127.0.0.1:8080 -t web > "$RUNNER_TEMP/server.log" 2>&1 &
+          for i in $(seq 50); do
+            curl -s -o /dev/null http://127.0.0.1:8080/ && exit 0
+            sleep 0.2
+          done
+          cat "$RUNNER_TEMP/server.log"
+          exit 1
 
       - name: Integration tests
         shell: bash
@@ -144,3 +171,20 @@ jobs:
           # Codeception can exit 0 when it fails before running anything, so
           # also require that tests actually ran
           grep -qE '^(OK \([1-9][0-9]* tests|Tests: [1-9])' integration-tests.log
+          # The front-end and console command tests skip themselves without a
+          # test site, so make sure they ran here
+          # (on this site every test should run, none skipped)
+          if grep -qE 'Skipped: [1-9]' integration-tests.log; then
+            echo "Some tests were skipped:"
+            grep -iE '^(- )?.*skipped|^S ' integration-tests.log || true
+            exit 1
+          fi
+
+      - name: Uninstall and reinstall
+        shell: bash
+        run: php "$RUNNER_TEMP/site/local/craft-abtestcraft/tests/ci/uninstall-check.php" "$RUNNER_TEMP/site"
+
+      - name: Web server log
+        if: failure()
+        shell: bash
+        run: tail -n 200 "$RUNNER_TEMP/server.log" || true

@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- Updating from 1.0.0 to 1.2.0 or later failed while a test was running (a migration read the tests with the new code before the database had its new columns), and Craft rolled the update back. Sites still on 1.0.0 can now update directly.
+
 ## [1.3.1] - 2026-11-26
 
 ### Changed
