@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Fixed
-- Updating from 1.0.0 to 1.2.0 or later failed while a test was running (a migration read the tests with the new code before the database had its new columns), and Craft rolled the update back. Sites still on 1.0.0 can now update directly.
+- Sites on 1.0.0 couldn't update to 1.2.0 or later while a test was running: Craft rolled the update back. They can now update directly.
 
 ## [1.3.1] - 2026-11-26
 

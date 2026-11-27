@@ -64,8 +64,9 @@ jobs:
 
   # The integration tests need a Craft site with a database, and the front-end
   # tests a web server for it: tests/ci/setup-site.sh builds a site from scratch.
-  # Newest everything on Postgres, oldest supported on MySQL, and an upgrade from
-  # the first release on each database (with traffic recorded by that release).
+  # Newest everything on Postgres, oldest supported on MySQL, and upgrades from
+  # earlier releases (with traffic recorded by that release): 1.0.0 on each
+  # database, then 1.1.0 and 1.2.0.
   integration:
     name: Integration (${{ matrix.label }})
     runs-on: ubuntu-latest
@@ -96,6 +97,19 @@ jobs:
             port: 3306
             craft: ''
             upgrade: '1.0.0'
+          # 1.1.0 already records per-goal visitor data; 1.2.0 has per-visitor stats
+          - label: Upgrade from 1.1.0, Postgres
+            php: '8.3'
+            db: pgsql
+            port: 5432
+            craft: ''
+            upgrade: '1.1.0'
+          - label: Upgrade from 1.2.0, MySQL
+            php: '8.3'
+            db: mysql
+            port: 3306
+            craft: ''
+            upgrade: '1.2.0'
 
     services:
       postgres:
