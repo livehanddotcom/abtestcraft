@@ -14,6 +14,10 @@
 # by default). To run them against MySQL, point CRAFT_DB_DSN there at an
 # installed Craft MySQL database (e.g. "mysql:host=...;port=3306;dbname=...").
 # Craft's TestSetup reloads tests/.env over shell variables, so set it in the file.
+#
+# To run them on a fresh Craft site instead (what GitHub Actions does), build one
+# against an empty database with tests/ci/setup-site.sh and run the tests from
+# the plugin copy it creates, using the site's Codeception.
 
 namespace: livehand\abtestcraft\tests
 support_namespace: Support

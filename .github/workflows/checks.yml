@@ -1,6 +1,5 @@
-# Code style, static analysis and unit tests on every pull request and on main.
-# The integration tests need a full Craft install with a database, so they
-# run locally (see codeception.yml).
+# Code style, static analysis and unit tests on every pull request and on main,
+# plus the integration tests on a fresh Craft site with a real database.
 name: Checks
 
 on:
@@ -62,3 +61,144 @@ jobs:
           # Codeception can exit 0 when it fails before running anything, so
           # also require that tests actually ran
           grep -qE '^(OK \([1-9][0-9]* tests|Tests: [1-9])' unit-tests.log
+
+  # The integration tests need a Craft site with a database, and the front-end
+  # tests a web server for it: tests/ci/setup-site.sh builds a site from scratch.
+  # Newest everything on Postgres, oldest supported on MySQL, and upgrades from
+  # earlier releases (with traffic recorded by that release): 1.0.0 on each
+  # database, then 1.1.0 and 1.2.0.
+  integration:
+    name: Integration (${{ matrix.label }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Postgres, PHP 8.4, newest Craft
+            php: '8.4'
+            db: pgsql
+            port: 5432
+            craft: ''
+          - label: MySQL, PHP 8.2, Craft 5.0.0
+            php: '8.2'
+            db: mysql
+            port: 3306
+            craft: '5.0.0'
+          - label: Upgrade from 1.0.0, Postgres
+            php: '8.3'
+            db: pgsql
+            port: 5432
+            craft: ''
+            upgrade: '1.0.0'
+          - label: Upgrade from 1.0.0, MySQL
+            php: '8.3'
+            db: mysql
+            port: 3306
+            craft: ''
+            upgrade: '1.0.0'
+          # 1.1.0 already records per-goal visitor data; 1.2.0 has per-visitor stats
+          - label: Upgrade from 1.1.0, Postgres
+            php: '8.3'
+            db: pgsql
+            port: 5432
+            craft: ''
+            upgrade: '1.1.0'
+          - label: Upgrade from 1.2.0, MySQL
+            php: '8.3'
+            db: mysql
+            port: 3306
+            craft: ''
+            upgrade: '1.2.0'
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: craft
+          POSTGRES_PASSWORD: craft
+          POSTGRES_DB: craft
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U craft"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: craft
+          MYSQL_DATABASE: craft
+          MYSQL_USER: craft
+          MYSQL_PASSWORD: craft
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -ucraft -pcraft"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: bcmath, curl, dom, gd, intl, mbstring, pdo, pdo_mysql, pdo_pgsql, zip
+          coverage: none
+          tools: composer:v2
+
+      - name: Cache Composer downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer
+          key: composer-integration-${{ matrix.php }}-${{ matrix.craft }}-${{ hashFiles('composer.json') }}
+          restore-keys: composer-integration-${{ matrix.php }}-${{ matrix.craft }}-
+
+      - name: Build a Craft site with the plugin
+        shell: bash
+        env:
+          DB_DRIVER: ${{ matrix.db }}
+          DB_HOST: 127.0.0.1
+          DB_PORT: ${{ matrix.port }}
+          DB_NAME: craft
+          DB_USER: craft
+          DB_PASSWORD: craft
+          CRAFT_VERSION: ${{ matrix.craft }}
+          UPGRADE_FROM: ${{ matrix.upgrade }}
+        run: tests/ci/setup-site.sh "$RUNNER_TEMP/site"
+
+      # For the front-end tests (it keeps running for the later steps)
+      - name: Start a web server for the site
+        shell: bash
+        run: |
+          cd "$RUNNER_TEMP/site"
+          php -d opcache.enable_cli=0 -S 127.0.0.1:8080 -t web > "$RUNNER_TEMP/server.log" 2>&1 &
+          for i in $(seq 50); do
+            curl -s -o /dev/null http://127.0.0.1:8080/ && exit 0
+            sleep 0.2
+          done
+          cat "$RUNNER_TEMP/server.log"
+          exit 1
+
+      - name: Integration tests
+        shell: bash
+        run: |
+          cd "$RUNNER_TEMP/site/local/craft-abtestcraft"
+          ../../vendor/bin/codecept run integration --no-colors | tee integration-tests.log
+          # Codeception can exit 0 when it fails before running anything, so
+          # also require that tests actually ran
+          grep -qE '^(OK \([1-9][0-9]* tests|Tests: [1-9])' integration-tests.log
+          # The front-end and console command tests skip themselves without a
+          # test site, so make sure they ran here
+          # (on this site every test should run, none skipped)
+          if grep -qE 'Skipped: [1-9]' integration-tests.log; then
+            echo "Some tests were skipped:"
+            grep -iE '^(- )?.*skipped|^S ' integration-tests.log || true
+            exit 1
+          fi
+
+      - name: Uninstall and reinstall
+        shell: bash
+        run: php "$RUNNER_TEMP/site/local/craft-abtestcraft/tests/ci/uninstall-check.php" "$RUNNER_TEMP/site"
+
+      - name: Web server log
+        if: failure()
+        shell: bash
+        run: tail -n 200 "$RUNNER_TEMP/server.log" || true
