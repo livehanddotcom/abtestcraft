@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed control panel errors when the plugin's settings, Tests list or results templates were opened directly by URL (such as `admin/abtestcraft/settings`). They now return a 404.
 - Fixed the 1.2.0 results migration taking hours on large PostgreSQL sites upgrading from 1.0.x (about 12 seconds for a million visitors now).
 - Fixed page visit goals not matching on sites with a path in their base URL (such as `/fr/`). Goal paths are now matched relative to the test's site as well as the full path.
+- Fixed the results page's test buttons running off the edge of narrow windows. They now wrap onto a second line.
 
 ## [1.2.0] - 2026-11-26
 

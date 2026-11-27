@@ -229,8 +229,9 @@
                 </div>
             {% else %}
                 {# Running/Paused/Draft Banner #}
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <div>
+                {# Wraps on narrow screens so the status text and buttons stay readable #}
+                <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px;">
+                    <div style="flex: 1 1 280px;">
                         <h2 style="margin: 0;">
                             {% switch test.status %}
                                 {% case 'running' %}
@@ -255,7 +256,7 @@
                             </p>
                         {% endif %}
                     </div>
-                    <div style="display: flex; align-items: center; gap: 8px;">
+                    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px;">
                         {% if test.isRunning %}
                             <form method="post" style="margin: 0;">
                                 {{ csrfInput() }}
@@ -268,7 +269,7 @@
                         {% endif %}
 
                         {% if test.isRunning or test.status == 'paused' %}
-                            <form method="post" style="margin: 0; display: flex; align-items: center; gap: 8px;">
+                            <form method="post" style="margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px;">
                                 {{ csrfInput() }}
                                 {{ actionInput('abtestcraft/tests/complete') }}
                                 {{ redirectInput('abtestcraft/tests/' ~ test.id ~ '/results') }}
